@@ -1,0 +1,65 @@
+# Environment variables and secrets
+.env
+*.env
+.env.local
+
+# API Keys and credentials
+*_api_key*
+*secret*
+*credential*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs and databases
+logs/bot_log.txt
+logs/*.txt
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Chat databases (contains personal messages)
+chat.db
+
+# Sensitive personal data
+consts/contacts.py
+consts/meg_knowledge.py
+
+# Testing outputs
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# macOS iMessage database
+~/Library/Messages/chat.db
