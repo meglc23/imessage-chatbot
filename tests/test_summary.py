@@ -8,8 +8,8 @@ import os
 # Add parent directory to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ai_responder import AIResponder
-from consts.contacts import get_mom_contacts, get_dad_contacts
+from ai.responder import AIResponder
+from config.contacts import get_mom_contacts, get_dad_contacts
 
 # Get contact info from contacts.py
 mom_contact = get_mom_contacts().get("email") or get_mom_contacts().get("phone") or "mom@example.com"

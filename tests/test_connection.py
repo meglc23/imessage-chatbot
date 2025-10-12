@@ -53,7 +53,7 @@ except Exception as e:
 # Test 3: Test AI Responder
 print("\n3. Testing AI connection...")
 try:
-    from ai_responder import AIResponder
+    from ai.responder import AIResponder
     ai = AIResponder(provider="anthropic")
     print("   ✓ AI initialized")
 

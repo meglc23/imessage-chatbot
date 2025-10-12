@@ -1,158 +1,204 @@
 # iMessage AI Chatbot
 
-An AI-powered chatbot that monitors your iMessage chats and responds with your personal tone and style using Claude or GPT.
+An intelligent chatbot that monitors your iMessage conversations with your parents and responds in your personal tone and style, powered by Claude AI.
 
-## Features
+## Why This Project?
 
-- 🤖 Monitors iMessage group chats or individual conversations
-- 💬 Generates responses using Anthropic Claude or OpenAI GPT
-- 🎭 **Personalized responses** - Uses your personal knowledge base and tone
-- 🧠 **Knowledge-aware** - References your personal info only when needed
-- 📊 Conversation history analysis for better context
-- ⚙️ Customizable system prompts and response behavior
+Stay connected with your parents even when you're busy. This bot:
+- **Monitors** your family chat on iMessage
+- **Understands context** from conversation history and reactions
+- **Responds naturally** using your personal knowledge and communication style
+- **Handles smartly** - answers pending questions or starts fresh topics based on recent conversation summary
 
-## Requirements
+## Key Features
 
-- macOS (uses AppleScript and SQLite to interface with Messages app)
-- Python 3.8 or higher
-- Anthropic API key (recommended) or OpenAI API key
-- **Full Disk Access** permission for Terminal (to read iMessage database)
+- 📊 **Smart Startup** - Generates conversation summary and addresses unanswered questions
+- 💬 **Natural Responses** - Uses your knowledge base and personal tone
+- ❤️ **Reaction Aware** - Recognizes iMessage reactions (❤️, 👍, 😂, etc.) as context
+- 🔄 **Weekly Updates** - Keep knowledge base current with recent activities
+- 🔒 **Privacy First** - All sensitive data protected via .gitignore
 
-## Installation
+## Quick Start
 
-1. Clone or download this repository
+### Prerequisites
+- macOS with iMessage
+- Python 3.8+
+- Anthropic API key ([Get one here](https://console.anthropic.com/))
+- Terminal with **Full Disk Access** permission
 
-2. Install dependencies:
+### Installation
+
+1. **Clone and install dependencies:**
 ```bash
+git clone <your-repo>
+cd imessage-chatbot
 pip install -r requirements.txt
 ```
 
-3. Copy the example environment file and configure it:
+2. **Configure environment** - Create `.env`:
 ```bash
-cp .env.example .env
+CHAT_NAME=Home                    # Your iMessage chat name
+BOT_NAME=Meg                      # Your name
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your-api-key-here
+CHECK_INTERVAL=10
 ```
 
-4. Edit `.env` file with your settings:
-   - `CHAT_NAME`: The exact name of your iMessage chat (must match exactly!)
-   - `BOT_NAME`: How you want the bot to identify itself
-   - `AI_PROVIDER`: Choose "anthropic" or "openai"
-   - API Key: Set either `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
+3. **Set up contacts** - Create `config/contacts.py`:
+```python
+PARENT_CONTACTS = {
+    "mom": {
+        "email": "mom@example.com",
+        "alias": "妈咪"
+    },
+    "dad": {
+        "phone": "+1234567890",
+        "alias": "爸爸"
+    }
+}
 
-5. **Grant Full Disk Access** (required for reading iMessage database):
-   - Open System Settings > Privacy & Security
-   - Click "Full Disk Access"
-   - Add Terminal.app (or your Python executable)
+# Helper functions
+CONTACT_ALIASES = {
+    ident: info["alias"]
+    for info in PARENT_CONTACTS.values()
+    for ident in (info.get("email"), info.get("phone"))
+    if ident
+}
+
+def get_mom_contacts():
+    return PARENT_CONTACTS["mom"]
+
+def get_dad_contacts():
+    return PARENT_CONTACTS["dad"]
+```
+
+4. **Personalize knowledge** - Create `config/knowledge_base.py` with your:
+   - Personal info (work, location, hobbies)
+   - Daily routines
+   - Recent activities
+   - Future plans
+
+5. **Grant permissions:**
+   - System Settings → Privacy & Security → Full Disk Access
+   - Add Terminal.app
    - Restart Terminal
 
-6. **Customize your bot's personality**:
-   - Edit `consts/meg_knowledge.py` with your personal information
-   - Edit `consts/system_prompt.py` to customize the bot's tone and style
+### Run
 
-## Finding Your Chat Name
-
-To find the exact chat name:
-
-1. Open the Messages app
-2. Look at the top of your chat window - the exact text shown there is your chat name
-3. For group chats, it's usually something like "Family Group" or the names of participants
-4. Copy this exactly into the `CHAT_NAME` setting
-
-## Usage
-
-Run the bot:
 ```bash
 python bot.py
 ```
 
 The bot will:
-1. Monitor the specified chat for new messages
-2. Analyze the conversation context
-3. Generate and send responses when appropriate
-4. Skip responding when it doesn't have anything meaningful to add
-
-Press `Ctrl+C` to stop the bot.
-
-## Configuration Options
-
-Edit `.env` to customize:
-
-- `CHECK_INTERVAL`: How often to check for new messages (default: 10 seconds)
-- `BOT_NAME`: The name shown as the sender (should match your iMessage account)
-- AI model can be changed in the respective handler files
-
-## Permissions
-
-When you first run the bot, macOS may ask for permissions:
-- Allow Terminal/Python to control Messages app
-- This is necessary for the AppleScript automation
-
-## Troubleshooting
-
-**"Chat not found" error:**
-- Double-check that `CHAT_NAME` exactly matches the chat name in Messages app
-- Try putting the full chat name including any special characters
-
-**"API key not found" error:**
-- Make sure you created a `.env` file (not `.env.example`)
-- Verify your API key is correctly set in the `.env` file
-
-**Messages not sending:**
-- Ensure Messages app is open and logged in
-- Check that you have granted the necessary permissions
+1. Generate conversation summary (last 20 messages)
+2. Answer pending questions OR start a fresh topic
+3. Monitor chat for new messages
+4. Respond naturally when appropriate
 
 ## Project Structure
 
 ```
 imessage-chatbot/
-├── bot.py                    # Main bot script - monitors and responds
-├── imessage_handler.py       # Reads/sends messages via AppleScript & SQLite
-├── ai_responder.py           # Generates AI responses using Claude/GPT
-├── consts/
-│   ├── meg_knowledge.py      # Your personal knowledge base
-│   └── system_prompt.py      # Bot's personality and tone instructions
-├── parse_home_thread.py      # Tool to parse messages from a thread
-├── analyze_tone.py           # Analyze message tone patterns
-└── .env                      # Configuration (API keys, chat name, etc.)
+├── bot.py                 # Main bot script
+├── imessage_handler.py    # iMessage integration
+│
+├── ai/                    # AI modules
+│   ├── responder.py       # Response generation
+│   └── summarizer.py      # Conversation summarization
+│
+├── config/                # Configuration (gitignored)
+│   ├── contacts.py        # Contact info
+│   └── knowledge_base.py  # Personal knowledge
+│
+├── prompts/               # AI prompts
+│   └── system_prompts.py  # Prompt templates
+│
+├── tests/                 # Test suite
+├── logs/                  # Logs and utilities
+│   └── utils/             # Utility scripts
+└── .env                   # Environment config (gitignored)
 ```
 
 ## Customization
 
-### 1. **Personal Knowledge Base** (`consts/meg_knowledge.py`)
-Add your personal information that the bot can reference when needed:
-- Basic info (name, age, location, work)
-- Daily routines and habits
-- Common questions and standard responses
-- Future plans and goals
+### System Prompt
+Edit `prompts/system_prompts.py` to customize:
+- Tone (formal/casual)
+- Response style
+- Language preferences
+- Typical phrases
 
-**Important**: The bot is configured to use this sparingly - it only references the knowledge base when asked specific questions, not in casual chat.
+### Knowledge Base
+Update `config/knowledge_base.py` with:
+- Weekly activities
+- Current projects
+- Plans and goals
+- Personal updates
 
-### 2. **System Prompt** (`consts/system_prompt.py`)
-Customize the bot's personality, tone, and communication style:
-- How formal/casual to be
-- Typical phrases and expressions
-- What topics to avoid or emphasize
-- Response length preferences
-
-### 3. **Environment Variables** (`.env`)
-- `CHAT_NAME`: Which chat to monitor
-- `BOT_NAME`: How the bot identifies itself
-- `CHECK_INTERVAL`: Polling frequency in seconds
-- `AI_PROVIDER`: "anthropic" or "openai"
-
-## Utility Scripts
-
-### Parse Messages from a Thread
-Extract messages from any iMessage thread to a text file:
-```bash
-python parse_home_thread.py "Thread Name" 1000
+### Contact Aliases
+Configure how parents appear in conversation in `config/contacts.py`:
+```python
+"mom": {"alias": "妈咪"}    # Chinese
+"dad": {"alias": "Dad"}     # English
 ```
 
-### Analyze Tone
-Analyze the tone and patterns in your messages:
+## Testing
+
 ```bash
-python analyze_tone.py
+# Verify setup
+python tests/test_connection.py
+
+# Test AI responses
+python tests/test_ai_responder.py
+
+# Test summaries
+python tests/test_summary.py
 ```
+
+## How It Works
+
+**Startup:**
+1. Loads config from `.env` and `consts/`
+2. Fetches 20 recent messages
+3. AI generates conversation summary
+4. Identifies unanswered questions
+5. Responds to questions OR starts fresh topic
+
+**Runtime:**
+1. Polls iMessage DB every 10 seconds
+2. Detects new messages & reactions
+3. Formats history with aliases
+4. Generates contextual response
+5. Sends via AppleScript
+
+## Privacy & Security
+
+Protected by `.gitignore`:
+- ✅ `.env` - API keys
+- ✅ `config/contacts.py` - Personal contacts
+- ✅ `config/knowledge_base.py` - Personal data
+- ✅ `logs/bot_log.txt` - Conversation logs
+- ✅ `.venv/` - Virtual environment
+
+**Before pushing to Git, verify:**
+```bash
+git status --ignored
+```
+
+## Troubleshooting
+
+**Can't read messages?**
+- Grant Terminal "Full Disk Access"
+- Restart Terminal
+
+**No responses?**
+- Check API key in `.env`
+- Verify `CHAT_NAME` matches exactly
+
+**Messages not sending?**
+- Ensure Messages app is open
+- Check permissions
 
 ## License
 
-MIT License - feel free to modify and use as you wish!
+MIT License - Use freely!

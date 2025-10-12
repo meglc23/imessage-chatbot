@@ -13,14 +13,19 @@ from datetime import datetime
 load_dotenv()
 
 # Import contact configuration
-from consts.contacts import CONTACT_ALIASES, get_mom_contacts, get_dad_contacts
+from config.contacts import CONTACT_ALIASES, get_mom_contacts, get_dad_contacts
 
-# Directly load the knowledge base and system prompt from their respective files
-with open("consts/meg_knowledge.py", "r", encoding="utf-8") as f:
+# Import prompts
+from prompts.system_prompts import (
+    SYSTEM_PROMPT,
+    RESPONSE_GENERATION_INSTRUCTIONS,
+    SUMMARY_RESPONSE_PROMPT_TEMPLATE,
+    STARTUP_TOPIC_PROMPT_TEMPLATE
+)
+
+# Directly load the knowledge base from file
+with open("config/knowledge_base.py", "r", encoding="utf-8") as f:
     MEG_KNOWLEDGE = f.read()
-
-with open("consts/system_prompt.py", "r", encoding="utf-8") as f:
-    SYSTEM_PROMPT = f.read()
 
 def _debug_log(message: str, log_file: str = "logs/bot_log.txt"):
     """Append debug information to the shared bot log."""
@@ -223,25 +228,7 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 
 ---
 
-Instructions:
-1. **DON'T OVERUSE the knowledge base. For casual chat, respond naturally WITHOUT pulling knowledge** - Only reference it when parents ask SPECIFIC questions, e.g. work, health, plans, etc.
-2. **Responses MUST be a single short sentence (ideal ≤ 20字, never more than one sentence)**
-3. Be direct and to the point - no over-explaining
-4. Don't volunteer extra information unless specifically asked
-5. Match Meg's real tone: mature, confident, independent adult daughter - not childishly obedient
-6. Avoid overly sweet or submissive responses - speak as an equal, not a child seeking approval
-7. If latest sender is mom/mother, address her as "妈咪"; if dad/father, address him as "爸爸". Do NOT confuse their roles.
-8. Focus strictly on the latest message; avoid re-answering topics you've already covered unless the parent explicitly asks again.
-9. If the latest parent message is just an acknowledgement (e.g., "好呀", "嗯嗯"), keep your reply minimal and do NOT re-open the previous topic unless they mention it.
-10. 如果父母只是客套/收尾, 可以随意轻松地换个新话题或结束谈话, 千万别硬聊没内容的话。
-11. 回应要紧扣「Latest message text」这句话, 优先解决其中的问题或情绪, 不要倒回去聊更早的话题。
-12. 如果无法确切回答对方的提问, 要坦诚说不知道/不确定, 然后轻松地换个新话题或邀请爸妈换个话题聊。
-
-Examples:
-- Parent: "在干嘛？" → "在家休息" (DON'T mention detailed schedule from knowledge base)
-- Parent: "工作怎么样？" → "挺好的，最近在做Meta AI项目" (Simple, brief)
-- Parent: "早" → "早" (ONLY use knowledge when asked)
-- Parent: "周末要不要视频？" → "可以啊" (Confident, not overly eager or childish)
+{RESPONSE_GENERATION_INSTRUCTIONS}
 
 Your previous reply (do NOT rehash this unless the latest parent message explicitly asks again): {last_bot_reply or "None"}
 
@@ -325,19 +312,10 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
         latest_message = ordered_messages[-1]
         latest_sender_alias = self.alias_sender(latest_message.get('sender', 'Unknown'))
 
-        summary_aware_prompt = f"""最近对话的总结:
-{summary}
-
-近期聊天记录:
-{conversation_history}
-
-任务:
-1. **仔细阅读总结**, 看是否有未回复的问题或待办事项
-2. 如果总结中提到有未回复的问题或待办事项, 请简短地回应这些问题 (1句话, ≤20字)
-3. 如果没有待办事项或问题, 返回 "SKIP" (不要开启新话题, 这会在后续步骤处理)
-4. 保持Meg的语气: 轻松、自然、简洁
-
-你的回复:"""
+        summary_aware_prompt = SUMMARY_RESPONSE_PROMPT_TEMPLATE.format(
+            summary=summary,
+            conversation_history=conversation_history
+        )
 
         try:
             if self.provider == "anthropic":
@@ -377,76 +355,6 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
             print(f"✗ Error generating summary-aware response: {e}")
             return None
 
-    def generate_summary(self, messages: List[Dict[str, str]], max_tokens: int = 300) -> Optional[str]:
-        """
-        Generate a summary of recent conversation history.
-
-        Args:
-            messages: List of message dictionaries to summarize
-            max_tokens: Maximum tokens for the summary
-
-        Returns:
-            A concise summary of the conversation, or None on failure
-        """
-        if not messages:
-            return None
-
-        # Format messages for summary
-        formatted_messages = []
-        for msg in messages:
-            sender_alias = self.alias_sender(msg['sender'])
-            text = msg.get('text', '')
-            if msg.get('is_reaction', False):
-                formatted_messages.append(f"{sender_alias} {text}")
-            else:
-                formatted_messages.append(f"{sender_alias}: {text}")
-
-        conversation_text = "\n".join(formatted_messages)
-
-        summary_prompt = f"""以下是你与父母最近的聊天记录。请用中文简要总结这段对话的主要内容和关键信息。
-
-聊天记录:
-{conversation_text}
-
-要求:
-1. 用2-4句话总结对话的主要话题和关键点
-2. 突出重要信息,比如计划、约定、关心的事项等
-3. 如果有未回复的问题或待办事项,要特别指出
-4. 保持客观简洁,不要添加主观评价
-5. 用中文输出
-
-总结:"""
-
-        try:
-            if self.provider == "anthropic":
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    system="You are a helpful assistant that summarizes conversations accurately and concisely.",
-                    messages=[{
-                        "role": "user",
-                        "content": summary_prompt
-                    }]
-                )
-                summary = response.content[0].text.strip()
-            elif self.provider == "openai":
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that summarizes conversations accurately and concisely."},
-                        {"role": "user", "content": summary_prompt}
-                    ]
-                )
-                summary = response.choices[0].message.content.strip()
-            else:
-                return None
-
-            _debug_log(f"Generated conversation summary: {summary}")
-            return summary or None
-        except Exception as e:
-            print(f"✗ Error generating summary: {e}")
-            return None
 
     def generate_startup_topic(self, audience: str = "family", summary: Optional[str] = None, max_tokens: int = 60) -> Optional[str]:
         """
@@ -472,25 +380,17 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
         summary_context = ""
         if summary:
             summary_context = f"""
-最近对话总结:
+Recent conversation summary:
 {summary}
 
-**注意**: 避免重复总结中已讨论过的话题。开启一个全新的、不同的话题。
+**Note**: Avoid repeating topics already discussed in the summary. Start a completely new, different topic.
 """
 
-        startup_prompt = f"""你是Meg, 一位在加州Mountain View工作的独立自信的女儿。
-你正在和{audience_label}聊天, 准备主动开启一个全新的轻松话题。
-{summary_context}
-个人背景 (参考但不要堆砌):
-{self.knowledge_base}
-
-要求:
-a. 只输出一句简短的中文, 自然口语化, 直接切入话题, 不要重复打招呼。
-b. 话题要新颖, 可以结合上面的背景, 例如工作亮点、日常琐事、兴趣计划等。
-d. 让对方容易接话, 可以提出轻松的问题或分享一个新的小计划。
-e. 控制在20个汉字左右, 不要冗长, 不要使用列表或编号。
-f. **如果提供了总结, 确保话题与总结中的内容完全不同。**
-"""
+        startup_prompt = STARTUP_TOPIC_PROMPT_TEMPLATE.format(
+            audience_label=audience_label,
+            summary_context=summary_context,
+            knowledge_base=self.knowledge_base
+        )
 
         try:
             if self.provider == "anthropic":

@@ -50,6 +50,10 @@ logs/*.txt
 chat.db
 
 # Sensitive personal data
+config/contacts.py
+config/knowledge_base.py
+
+# Old structure (backward compatibility)
 consts/contacts.py
 consts/meg_knowledge.py
 

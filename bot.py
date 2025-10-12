@@ -9,16 +9,10 @@ from datetime import datetime
 from typing import List, Dict
 from dotenv import load_dotenv
 from imessage_handler import iMessageHandler
-from ai_responder import AIResponder
+from ai.responder import AIResponder
+from ai.summarizer import ConversationSummarizer
 import random
-from consts.contacts import get_mom_contacts, get_dad_contacts
-
-# Directly load the knowledge base and system prompt from their respective files
-with open("consts/meg_knowledge.py", "r", encoding="utf-8") as f:
-    MEG_KNOWLEDGE = f.read()
-
-with open("consts/system_prompt.py", "r", encoding="utf-8") as f:
-    SYSTEM_PROMPT = f.read()
+from config.contacts import get_mom_contacts, get_dad_contacts
 
 def log_message(message, log_file="logs/bot_log.txt"):
     """Log messages to a file with timestamp"""
@@ -67,16 +61,13 @@ def main():
         "准备把阳台的小植物重新整理一下，你们那边花园怎么样？"
     ]
 
-    # Print loaded knowledge and system prompt for debugging
-    print("Loaded Knowledge Base:")
-    print(MEG_KNOWLEDGE)
-    print("\nLoaded System Prompt:")
-    print(SYSTEM_PROMPT)
+    # Note: Knowledge base and system prompts are now loaded automatically by AI modules
 
     # Initialize handlers
     try:
         imessage = iMessageHandler(CHAT_NAME, user_display_name=BOT_NAME)
         ai = AIResponder(provider=AI_PROVIDER)
+        summarizer = ConversationSummarizer(provider=AI_PROVIDER)
     except Exception as e:
         print(f"Error initializing handlers: {e}")
         return
@@ -116,7 +107,7 @@ def main():
     if messages:
         print("\n📋 Generating conversation summary...")
         log_message("Startup: Generating conversation summary")
-        conversation_summary = ai.generate_summary(messages)
+        conversation_summary = summarizer.generate_summary(messages)
         if conversation_summary:
             print(f"\n{'='*60}")
             print("📝 Recent Conversation Summary:")

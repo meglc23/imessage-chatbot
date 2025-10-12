@@ -9,19 +9,20 @@ PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, os.pardir))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from ai_responder import AIResponder
-from consts.contacts import get_mom_contacts, get_dad_contacts
+import ai.responder as ai_module
+from ai.responder import AIResponder
+from config.contacts import get_mom_contacts, get_dad_contacts
 
 
 class TestAIResponder(unittest.TestCase):
 
     def setUp(self):
         # Patch Anthropic for all tests to avoid requiring the real package/client
-        self._anthropic_patcher = patch("ai_responder.Anthropic", MagicMock())
+        self._anthropic_patcher = patch.object(ai_module, "Anthropic", MagicMock())
         self.mock_anthropic_class = self._anthropic_patcher.start()
         self.addCleanup(self._anthropic_patcher.stop)
 
-    @patch("ai_responder.Anthropic")
+    @patch.object(ai_module, "Anthropic")
     def test_response_generation_with_mocked_provider(self, mock_anthropic):
         """AIResponder should return a non-empty string when provider is mocked."""
         # Arrange mock Anthropic client
@@ -56,7 +57,7 @@ class TestAIResponder(unittest.TestCase):
         msg = {"sender": "AI Assistant", "text": "Hi"}
         print("should_not_respond_to_own_message ->", responder.should_respond_to_message(msg, bot_name="AI Assistant"))
 
-    @patch("ai_responder.Anthropic")
+    @patch.object(ai_module, "Anthropic")
     def test_prompt_uses_latest_conversation_history(self, mock_anthropic):
         """Prompt fed to provider should include latest parent message text."""
         mock_client = MagicMock()
