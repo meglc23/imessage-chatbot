@@ -20,6 +20,7 @@ from prompts.system_prompts import (
     SYSTEM_PROMPT,
     RESPONSE_GENERATION_INSTRUCTIONS,
     SUMMARY_RESPONSE_PROMPT_TEMPLATE,
+    SUMMARY_GENERATION_PROMPT_TEMPLATE,
     STARTUP_TOPIC_PROMPT_TEMPLATE
 )
 
@@ -267,6 +268,117 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
 
         except Exception as e:
             print(f"✗ Error generating response: {e}")
+            return None
+
+    # ------------------------------------------------------------------
+    # Conversation summarisation utilities
+    # ------------------------------------------------------------------
+
+    def _format_conversation_text(self, messages: List[Dict[str, str]], for_summary: bool = True) -> str:
+        """Return a formatted conversation transcript for prompts."""
+        lines: List[str] = []
+        for msg in messages:
+            sender_alias = self.alias_sender(msg.get('sender', ''))
+            is_reaction = msg.get('is_reaction')
+            text = msg.get('text') or ""
+
+            if is_reaction:
+                reaction_display = text or "[Reaction]"
+                lines.append(f"{sender_alias} reacted {reaction_display}")
+            else:
+                lines.append(f"{sender_alias}: {text}")
+
+        if not for_summary:
+            # Limit to last 10 lines for response prompts
+            lines = lines[-10:]
+
+        return "\n".join(lines)
+
+    def generate_summary(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 180
+    ) -> Optional[str]:
+        """Summarise the recent conversation in Chinese."""
+
+        if not messages:
+            return None
+
+        conversation_text = self._format_conversation_text(messages, for_summary=True)
+        prompt = SUMMARY_GENERATION_PROMPT_TEMPLATE.format(conversation_text=conversation_text)
+
+        try:
+            if self.provider == "anthropic":
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    system=self.system_prompt,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                summary = response.content[0].text.strip()
+            elif self.provider == "openai":
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                summary = response.choices[0].message.content.strip()
+            else:
+                return None
+
+            return summary or None
+        except Exception as e:
+            print(f"✗ Error generating summary: {e}")
+            return None
+
+    def generate_response_with_summary(
+        self,
+        messages: List[Dict[str, str]],
+        summary: str,
+        max_tokens: int = 60
+    ) -> Optional[str]:
+        """Generate a follow-up response using a conversation summary."""
+
+        if not messages or not summary:
+            return None
+
+        conversation_history = self._format_conversation_text(messages, for_summary=False)
+        prompt = SUMMARY_RESPONSE_PROMPT_TEMPLATE.format(
+            summary=summary,
+            conversation_history=conversation_history
+        )
+
+        try:
+            if self.provider == "anthropic":
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    system=self.system_prompt,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                reply = response.content[0].text.strip()
+            elif self.provider == "openai":
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                reply = response.choices[0].message.content.strip()
+            else:
+                return None
+
+            if not reply or reply.upper() == "SKIP":
+                return None
+
+            return reply
+        except Exception as e:
+            print(f"✗ Error generating summary response: {e}")
             return None
 
     def generate_response_with_summary(
