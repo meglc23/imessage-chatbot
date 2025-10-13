@@ -24,14 +24,29 @@ from prompts.system_prompts import (
     STARTUP_TOPIC_PROMPT_TEMPLATE
 )
 
+# Import planner
+from ai.planner import plan_response, should_respond_with_plan
+
+# Model configuration
+ANTHROPIC_RESPONSE_MODEL = "claude-3-5-haiku-20241022"
+OPENAI_RESPONSE_MODEL = "gpt-4"
+
 # Directly load the knowledge base from file
 with open("config/knowledge_base.py", "r", encoding="utf-8") as f:
     MEG_KNOWLEDGE = f.read()
 
-def _debug_log(message: str, log_file: str = "logs/bot_log.txt"):
-    """Append debug information to the shared bot log."""
+def _debug_log(message: str, log_file: str = None):
+    """Append debug information to the shared bot log with date-based partitioning."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Use date-based log file if not specified
+    if log_file is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        log_file = f"logs/bot_log_{date_str}.txt"
+
     try:
+        # Ensure logs directory exists
+        os.makedirs("logs", exist_ok=True)
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}]   DEBUG: {message}\n")
     except Exception:
@@ -64,7 +79,7 @@ class AIResponder:
             if not self.api_key:
                 raise ValueError("ANTHROPIC_API_KEY not found in environment")
             self.client = Anthropic(api_key=self.api_key)
-            self.model = "claude-3-haiku-20240307"
+            self.model = ANTHROPIC_RESPONSE_MODEL
 
         elif self.provider == "openai":
             try:
@@ -76,7 +91,7 @@ class AIResponder:
             if not self.api_key:
                 raise ValueError("OPENAI_API_KEY not found in environment")
             self.client = openai.OpenAI(api_key=self.api_key)
-            self.model = "gpt-4"
+            self.model = OPENAI_RESPONSE_MODEL
 
         else:
             raise ValueError(f"Unknown provider: {provider}")
@@ -129,6 +144,7 @@ class AIResponder:
         """
         # Ensure messages are in chronological order using database id when available
         if not messages:
+            _debug_log("generate_response: No messages provided")
             return None
 
         if all('id' in msg for msg in messages):
@@ -136,10 +152,15 @@ class AIResponder:
         else:
             ordered_messages = list(messages)
 
+        _debug_log(f"generate_response: Processing {len(ordered_messages)} messages")
+
         # Format conversation history using the latest messages
         recent_messages = ordered_messages[-10:]
         latest_message = ordered_messages[-1]
         latest_parent_text = latest_message['text']
+
+        _debug_log(f"generate_response: Using {len(recent_messages)} recent messages for context")
+        _debug_log(f"generate_response: Latest message from {latest_message.get('sender')}: {latest_parent_text[:100]}")
 
         has_bot_message = any(
             msg.get('is_from_me')
@@ -214,7 +235,52 @@ class AIResponder:
 
         _debug_log(f"AI context latest message: sender={latest_message.get('sender')}, text={latest_parent_text}")
 
-        # Build prompt with knowledge base
+        # Use planner to determine response strategy
+        _debug_log(f"generate_response: Calling planner with sender_info={relationship_hint}")
+        plan = plan_response(
+            history=conversation_history,
+            new_msg=latest_parent_text,
+            sender_info=relationship_hint,
+            last_bot_reply=last_bot_reply
+        )
+        _debug_log(f"generate_response: Planner result -> intent={plan.get('intent')}, tone={plan.get('tone')}, length={plan.get('response_length')}, should_respond={plan.get('should_respond')}")
+        _debug_log(f"generate_response: Planner hint -> {plan.get('hint')}")
+        
+        # Check if we should respond based on the plan
+        if not should_respond_with_plan(plan):
+            _debug_log("generate_response: Planner determined not to respond - skipping message")
+            return None
+
+        _debug_log("generate_response: Planner approved response - proceeding with generation")
+
+        # Build prompt with knowledge base and planning context
+        # Map response_length to specific instructions, adjusted by intent
+        intent = plan.get('intent', 'ack')
+        response_length = plan.get('response_length', 'short')
+
+        if intent == "answer_question":
+            length_instructions = {
+                "minimal": "Answer briefly in 1-2 sentences. If you don't know, say so honestly and encourage them to explain.",
+                "short": "Answer in 1-2 sentences. If uncertain, admit it naturally and invite more context.",
+                "medium": "Answer thoughtfully in 2-3 sentences. If you don't have enough info, be honest and ask them to share more."
+            }
+        else:
+            length_instructions = {
+                "minimal": "Reply in 1 very short sentence only.",
+                "short": "Reply in 1-2 brief sentences.",
+                "medium": "Reply in 2-3 sentences, you can be more thoughtful and detailed."
+            }
+        length_instruction = length_instructions.get(response_length, length_instructions['short'])
+
+        planning_context = f"""
+PLANNING CONTEXT:
+- Intent: {plan['intent']}
+- Tone: {plan['tone']}
+- Response Length: {plan['response_length']} ({length_instruction})
+- Topic: {plan['topic']}
+- Hint: {plan['hint']}
+"""
+        
         user_prompt = f"""Here's the recent conversation:
 
 {conversation_history}
@@ -231,11 +297,15 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 
 {RESPONSE_GENERATION_INSTRUCTIONS}
 
+{planning_context}
+
 Your previous reply (do NOT rehash this unless the latest parent message explicitly asks again): {last_bot_reply or "None"}
 
 Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
 
         try:
+            _debug_log(f"generate_response: Calling {self.provider} API with model={self.model}, max_tokens={max_tokens}")
+
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
@@ -247,6 +317,7 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
                     }]
                 )
                 reply = response.content[0].text.strip()
+                _debug_log(f"generate_response: Received response from Anthropic (length={len(reply)} chars)")
 
             elif self.provider == "openai":
                 response = self.client.chat.completions.create(
@@ -258,15 +329,19 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
                     ]
                 )
                 reply = response.choices[0].message.content.strip()
+                _debug_log(f"generate_response: Received response from OpenAI (length={len(reply)} chars)")
 
             # Always return the response (let AI handle greetings naturally)
             if not reply:
+                _debug_log("generate_response: Empty response received, returning None")
                 return None
+
             self.last_reply = reply
-            _debug_log(f"Stored last reply for future avoidance: {reply}")
+            _debug_log(f"generate_response: SUCCESS - Generated reply: {reply}")
             return reply
 
         except Exception as e:
+            _debug_log(f"generate_response: ERROR - {type(e).__name__}: {str(e)}")
             print(f"✗ Error generating response: {e}")
             return None
 
@@ -423,11 +498,78 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
 
         latest_message = ordered_messages[-1]
         latest_sender_alias = self.alias_sender(latest_message.get('sender', 'Unknown'))
+        latest_parent_text = latest_message['text']
+
+        # Detect sender relationship for context
+        mom_contacts = {val for val in (
+            (get_mom_contacts().get("email") or "").lower(),
+            (get_mom_contacts().get("phone") or "").lower()
+        ) if val}
+        dad_contacts = {val for val in (
+            (get_dad_contacts().get("email") or "").lower(),
+            (get_dad_contacts().get("phone") or "").lower()
+        ) if val}
+
+        latest_sender_raw = (latest_message.get('sender') or "").lower()
+        if latest_sender_raw in mom_contacts:
+            relationship_hint = "mom"
+        elif latest_sender_raw in dad_contacts:
+            relationship_hint = "dad"
+        else:
+            relationship_hint = "other"
+
+        # Find last bot reply
+        last_bot_reply = None
+        for msg in reversed(recent_messages):
+            if msg.get('is_from_me') or self.alias_sender(msg['sender']) == "我":
+                last_bot_reply = msg['text']
+                break
+
+        # Use planner to determine response strategy
+        plan = plan_response(
+            history=conversation_history,
+            new_msg=latest_parent_text,
+            sender_info=relationship_hint,
+            last_bot_reply=last_bot_reply
+        )
+        _debug_log(f"Summary-aware planner result: {plan}")
+        
+        # Check if we should respond based on the plan
+        if not should_respond_with_plan(plan):
+            _debug_log("Summary-aware planner determined not to respond")
+            return None
+
+        # Build planning context for summary response
+        intent = plan.get('intent', 'ack')
+        response_length = plan.get('response_length', 'short')
+
+        if intent == "answer_question":
+            length_instructions = {
+                "minimal": "Answer briefly in 1-2 sentences. If you don't know, say so honestly and encourage them to explain.",
+                "short": "Answer in 1-2 sentences. If uncertain, admit it naturally and invite more context.",
+                "medium": "Answer thoughtfully in 2-3 sentences. If you don't have enough info, be honest and ask them to share more."
+            }
+        else:
+            length_instructions = {
+                "minimal": "Reply in 1 very short sentence only.",
+                "short": "Reply in 1-2 brief sentences.",
+                "medium": "Reply in 2-3 sentences, you can be more thoughtful and detailed."
+            }
+        length_instruction = length_instructions.get(response_length, length_instructions['short'])
+
+        planning_context = f"""
+PLANNING CONTEXT:
+- Intent: {plan['intent']}
+- Tone: {plan['tone']}
+- Response Length: {plan['response_length']} ({length_instruction})
+- Topic: {plan['topic']}
+- Hint: {plan['hint']}
+"""
 
         summary_aware_prompt = SUMMARY_RESPONSE_PROMPT_TEMPLATE.format(
             summary=summary,
             conversation_history=conversation_history
-        )
+        ) + f"\n\n{planning_context}"
 
         try:
             if self.provider == "anthropic":

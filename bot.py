@@ -28,7 +28,7 @@ def main():
     CHAT_NAME = os.getenv("CHAT_NAME")
     BOT_NAME = os.getenv("BOT_NAME", "AI Assistant")
     AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")
-    CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "10"))  # seconds
+    CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "20"))  # seconds
 
     if not CHAT_NAME:
         print("Error: CHAT_NAME not set in .env file")
@@ -98,7 +98,7 @@ def main():
             conversation_history = conversation_history[-40:]
         return entry_copy
 
-    messages = imessage.get_recent_messages(count=20)
+    messages = imessage.get_recent_messages(count=30)
     log_message(f"Startup: Retrieved {len(messages)} messages for bootstrap")
     print(f"Bootstrap pulled {len(messages)} messages")
 

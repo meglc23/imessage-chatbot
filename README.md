@@ -1,6 +1,6 @@
 # iMessage AI Chatbot
 
-An intelligent chatbot that monitors your iMessage conversations with your parents and responds in your personal tone and style, powered by Claude AI.
+Intelligent chatbot that responds in your personal style, powered by Claude AI.
 
 ## Why This Project?
 
@@ -8,80 +8,50 @@ Stay connected with your parents even when you're busy. This bot:
 - **Monitors** your family chat on iMessage
 - **Understands context** from conversation history and reactions
 - **Responds naturally** using your personal knowledge and communication style
-- **Handles smartly** - answers pending questions or starts fresh topics based on recent conversation summary
+- **Handles smartly** - answers pending questions or starts fresh topics
 
-## Key Features
+## Features
 
-- 📊 **Smart Startup** - Generates conversation summary and addresses unanswered questions
-- 💬 **Natural Responses** - Uses your knowledge base and personal tone
-- ❤️ **Reaction Aware** - Recognizes iMessage reactions (❤️, 👍, 😂, etc.) as context
-- 🔄 **Weekly Updates** - Keep knowledge base current with recent activities
-- 🔒 **Privacy First** - All sensitive data protected via .gitignore
+- 🧠 **Smart Planning** - Plans response strategy (intent, tone, length) before replying
+- 💬 **Natural Responses** - Uses your knowledge base and communication style
+- ❤️ **Reaction Aware** - Recognizes iMessage reactions (❤️, 👍, 😂)
+- 📊 **Smart Startup** - Summarizes conversation and addresses unanswered questions
+- 🔒 **Privacy First** - All sensitive data gitignored
 
 ## Quick Start
 
-### Prerequisites
-- macOS with iMessage
-- Python 3.8+
-- Anthropic API key ([Get one here](https://console.anthropic.com/))
-- Terminal with **Full Disk Access** permission
+### Setup
 
-### Installation
-
-1. **Clone and install dependencies:**
 ```bash
-git clone <your-repo>
+# Install
+git clone <repo>
 cd imessage-chatbot
 pip install -r requirements.txt
+
+# Configure .env
+CHAT_NAME=Home
+BOT_NAME=Meg
+ANTHROPIC_API_KEY=your-key
 ```
 
-2. **Configure environment** - Create `.env`:
-```bash
-CHAT_NAME=Home                    # Your iMessage chat name
-BOT_NAME=Meg                      # Your name
-AI_PROVIDER=anthropic
-ANTHROPIC_API_KEY=your-api-key-here
-CHECK_INTERVAL=10
-```
+### Configuration Files
 
-3. **Set up contacts** - Create `config/contacts.py`:
+Create these in `config/`:
+
+**contacts.py:**
 ```python
 PARENT_CONTACTS = {
-    "mom": {
-        "email": "mom@example.com",
-        "alias": "妈咪"
-    },
-    "dad": {
-        "phone": "+1234567890",
-        "alias": "爸爸"
-    }
+    "mom": {"email": "mom@example.com", "alias": "妈咪"},
+    "dad": {"phone": "+1234567890", "alias": "爸爸"}
 }
-
-# Helper functions
-CONTACT_ALIASES = {
-    ident: info["alias"]
-    for info in PARENT_CONTACTS.values()
-    for ident in (info.get("email"), info.get("phone"))
-    if ident
-}
-
-def get_mom_contacts():
-    return PARENT_CONTACTS["mom"]
-
-def get_dad_contacts():
-    return PARENT_CONTACTS["dad"]
 ```
 
-4. **Personalize knowledge** - Create `config/knowledge_base.py` with your:
-   - Personal info (work, location, hobbies)
-   - Daily routines
-   - Recent activities
-   - Future plans
+**knowledge_base.py:**
+Add your personal info, routines, recent activities, future plans.
 
-5. **Grant permissions:**
-   - System Settings → Privacy & Security → Full Disk Access
-   - Add Terminal.app
-   - Restart Terminal
+### Permissions
+
+System Settings → Privacy & Security → Full Disk Access → Add Terminal
 
 ### Run
 
@@ -89,116 +59,73 @@ def get_dad_contacts():
 python bot.py
 ```
 
-The bot will:
-1. Generate conversation summary (last 20 messages)
-2. Answer pending questions OR start a fresh topic
-3. Monitor chat for new messages
-4. Respond naturally when appropriate
-
 ## Project Structure
 
 ```
-imessage-chatbot/
-├── bot.py                 # Main bot script
-├── imessage_handler.py    # iMessage integration
-│
-├── ai/                    # AI modules
-│   ├── responder.py       # Response generation
-│   └── summarizer.py      # Conversation summarization
-│
-├── config/                # Configuration (gitignored)
-│   ├── contacts.py        # Contact info
-│   └── knowledge_base.py  # Personal knowledge
-│
-├── prompts/               # AI prompts
-│   └── system_prompts.py  # Prompt templates
-│
-├── tests/                 # Test suite
-├── logs/                  # Logs and utilities
-│   └── utils/             # Utility scripts
-└── .env                   # Environment config (gitignored)
-```
-
-## Customization
-
-### System Prompt
-Edit `prompts/system_prompts.py` to customize:
-- Tone (formal/casual)
-- Response style
-- Language preferences
-- Typical phrases
-
-### Knowledge Base
-Update `config/knowledge_base.py` with:
-- Weekly activities
-- Current projects
-- Plans and goals
-- Personal updates
-
-### Contact Aliases
-Configure how parents appear in conversation in `config/contacts.py`:
-```python
-"mom": {"alias": "妈咪"}    # Chinese
-"dad": {"alias": "Dad"}     # English
-```
-
-## Testing
-
-```bash
-# Verify setup
-python tests/test_connection.py
-
-# Test AI responses
-python tests/test_ai_responder.py
-
-# Test summaries
-python tests/test_summary.py
+├── bot.py                    # Main script
+├── imessage_handler.py       # iMessage integration
+├── ai/
+│   ├── planner.py           # Response planning
+│   └── responder.py         # Response generation
+├── config/                   # Contacts & knowledge (gitignored)
+├── prompts/                  # Prompt templates
+├── scripts/                  # Data extraction tools
+├── tests/                    # Test suite
+├── utils/                    # Shared utilities
+└── data/exports/            # Exported data (gitignored)
 ```
 
 ## How It Works
 
 **Startup:**
-1. Loads config from `.env` and `consts/`
-2. Fetches 20 recent messages
-3. AI generates conversation summary
-4. Identifies unanswered questions
-5. Responds to questions OR starts fresh topic
+1. Loads config
+2. Generates conversation summary
+3. Responds to pending questions OR starts fresh topic
 
 **Runtime:**
-1. Polls iMessage DB every 10 seconds
-2. Detects new messages & reactions
-3. Formats history with aliases
-4. Generates contextual response
-5. Sends via AppleScript
+1. Polls iMessage every 20s
+2. **Plans** response (intent, tone, length)
+3. **Generates** response using plan
+4. Sends via AppleScript
 
-## Privacy & Security
+**Planning Layer:**
+- `intent`: ack | ask_followup | share_story | reflect | answer_question
+- `tone`: playful | caring | neutral | enthusiastic
+- `response_length`: minimal | short | medium
 
-Protected by `.gitignore`:
-- ✅ `.env` - API keys
-- ✅ `config/contacts.py` - Personal contacts
-- ✅ `config/knowledge_base.py` - Personal data
-- ✅ `logs/bot_log.txt` - Conversation logs
-- ✅ `.venv/` - Virtual environment
+## Testing
 
-**Before pushing to Git, verify:**
 ```bash
-git status --ignored
+python tests/test_planner.py       # Test planner with real messages
+python tests/test_connection.py    # Verify setup
+python tests/test_ai_responder.py  # Test responses
 ```
+
+## Scripts
+
+```bash
+# Export messages from iMessage DB
+python scripts/parse_thread.py Home 50
+
+# Extract your messages only
+python scripts/extract_my_messages.py
+```
+
+## Customization
+
+- **Tone & style**: Edit `prompts/system_prompts.py`
+- **Knowledge**: Update `config/knowledge_base.py` weekly
+- **Contacts**: Modify aliases in `config/contacts.py`
+- **Models**: Change model versions in `ai/responder.py` and `ai/planner.py` constants:
+  - `ANTHROPIC_PLANNER_MODEL` - Default: `claude-3-haiku-20240307` (cheapest)
+  - `ANTHROPIC_RESPONSE_MODEL` - Default: `claude-3-5-haiku-20241022` (best value)
 
 ## Troubleshooting
 
-**Can't read messages?**
-- Grant Terminal "Full Disk Access"
-- Restart Terminal
+**Can't read messages?** Grant Terminal "Full Disk Access" and restart
 
-**No responses?**
-- Check API key in `.env`
-- Verify `CHAT_NAME` matches exactly
-
-**Messages not sending?**
-- Ensure Messages app is open
-- Check permissions
+**No responses?** Check `ANTHROPIC_API_KEY` and `CHAT_NAME` in `.env`
 
 ## License
 
-MIT License - Use freely!
+MIT

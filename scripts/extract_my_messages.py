@@ -1,7 +1,24 @@
 #!/usr/bin/env python3
 """Extract only 'Me' messages with actual text content"""
 
-with open('Home_messages.txt', 'r', encoding='utf-8') as f:
+import sys
+import os
+
+# Default input file
+input_file = 'data/exports/Home_messages.txt'
+
+# Allow command line argument to override
+if len(sys.argv) > 1:
+    input_file = sys.argv[1]
+
+if not os.path.exists(input_file):
+    print(f"Error: File '{input_file}' not found")
+    print(f"Usage: python {sys.argv[0]} [path_to_messages.txt]")
+    sys.exit(1)
+
+print(f"Reading from: {input_file}\n")
+
+with open(input_file, 'r', encoding='utf-8') as f:
     lines = f.readlines()
 
 my_messages = []

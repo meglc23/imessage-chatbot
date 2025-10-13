@@ -5,8 +5,16 @@ Parse messages from chat thread and save to txt file
 
 import sqlite3
 import os
+import sys
+from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
+
+# Add project root to path for utils import
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from utils.imessage_utils import decode_attributed_body
 
 load_dotenv()
 
@@ -96,7 +104,9 @@ def parse_home_messages(chat_name: str = None, count: int = 1000):
         messages = list(reversed(messages))
 
         # Write to file
-        output_file = f"{chat_name.replace(' ', '_')}_messages.txt"
+        output_dir = "data/exports"
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = f"{output_dir}/{chat_name.replace(' ', '_')}_messages.txt"
         print(f"\nWriting to: {output_file}")
 
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -108,12 +118,15 @@ def parse_home_messages(chat_name: str = None, count: int = 1000):
             for idx, msg in enumerate(messages, 1):
                 sender = msg[0]
                 text = msg[1]
+                attributed_body = msg[2]
                 time = msg[3]
 
                 # Handle messages without text content
                 if not text:
-                    if msg[2]:  # attributedBody exists
-                        text = "[Attachment or formatted message]"
+                    if attributed_body:
+                        # Try to decode attributedBody
+                        decoded = decode_attributed_body(attributed_body)
+                        text = decoded if decoded else "[Attachment or formatted message]"
                     else:
                         text = "[No text content]"
 
@@ -148,6 +161,135 @@ def parse_home_messages(chat_name: str = None, count: int = 1000):
         import traceback
         traceback.print_exc()
         return None
+
+
+def extract_messages_for_tests(chat_name: str = None, count: int = 30) -> list:
+    """
+    Extract recent messages as structured data for testing (not saving to file).
+
+    Args:
+        chat_name: Name of the chat/thread to parse (defaults to CHAT_NAME from .env)
+        count: Number of messages to retrieve
+
+    Returns:
+        List of message dictionaries with 'id', 'sender', 'text', 'time', 'is_from_me' keys
+    """
+    if chat_name is None:
+        chat_name = os.getenv("CHAT_NAME", "Home")
+
+    try:
+        db_path = os.path.expanduser("~/Library/Messages/chat.db")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Find the chat
+        cursor.execute("""
+            SELECT ROWID FROM chat
+            WHERE display_name = ? OR chat_identifier LIKE ?
+            LIMIT 1
+        """, (chat_name, f"%{chat_name}%"))
+
+        chat_row = cursor.fetchone()
+        if not chat_row:
+            conn.close()
+            return []
+
+        chat_id = chat_row[0]
+
+        # Get messages
+        cursor.execute("""
+            SELECT
+                message.ROWID as message_id,
+                CASE
+                    WHEN message.is_from_me = 1 THEN 'Me'
+                    WHEN handle.id IS NOT NULL THEN handle.id
+                    ELSE 'Unknown'
+                END as sender,
+                message.text,
+                message.attributedBody,
+                datetime(message.date/1000000000 + strftime('%s', '2001-01-01'), 'unixepoch', 'localtime') as time,
+                message.is_from_me,
+                message.associated_message_type
+            FROM message
+            JOIN chat_message_join ON message.ROWID = chat_message_join.message_id
+            LEFT JOIN handle ON message.handle_id = handle.ROWID
+            WHERE chat_message_join.chat_id = ?
+            ORDER BY message.date DESC
+            LIMIT ?
+        """, (chat_id, count))
+
+        messages = []
+        for row in reversed(cursor.fetchall()):
+            message_id, sender, text, attributed_body, time, is_from_me, associated_type = row
+
+            # Skip reactions
+            is_reaction = associated_type is not None and associated_type in [2000, 3000]
+            if is_reaction:
+                continue
+
+            # Handle missing text
+            if not text:
+                if attributed_body:
+                    # Try to decode attributedBody
+                    decoded = decode_attributed_body(attributed_body)
+                    text = decoded if decoded else "[Attachment]"
+                else:
+                    text = "[No text content]"
+
+            messages.append({
+                'id': message_id,
+                'sender': sender,
+                'text': text,
+                'time': time,
+                'is_from_me': bool(is_from_me)
+            })
+
+        conn.close()
+        return messages
+
+    except Exception as e:
+        print(f"Error extracting messages: {e}")
+        return []
+
+
+def build_test_scenarios(messages: list) -> list:
+    """
+    Build test scenarios from real messages for planner testing.
+
+    Args:
+        messages: List of messages from extract_messages_for_tests()
+
+    Returns:
+        List of test scenario dictionaries with 'history', 'new_message', 'sender'
+    """
+    if len(messages) < 5:
+        return []
+
+    scenarios = []
+
+    # Create scenarios with sliding window
+    for i in range(5, len(messages), 3):
+        history_messages = messages[max(0, i-10):i]
+        latest_message = messages[i]
+
+        # Skip if latest message is from "Me"
+        if latest_message['is_from_me']:
+            continue
+
+        # Format history
+        history_lines = []
+        for msg in history_messages:
+            history_lines.append(f"{msg['sender']}: {msg['text']}")
+        history = "\n".join(history_lines)
+
+        scenarios.append({
+            'history': history,
+            'new_message': latest_message['text'],
+            'sender': latest_message['sender'],
+            'timestamp': latest_message['time']
+        })
+
+    return scenarios
 
 
 if __name__ == "__main__":
