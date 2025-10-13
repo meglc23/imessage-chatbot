@@ -66,7 +66,8 @@ python bot.py
 ├── imessage_handler.py       # iMessage integration
 ├── ai/
 │   ├── planner.py           # Response planning
-│   └── responder.py         # Response generation
+│   ├── responder.py         # Response generation
+│   └── summarizer.py        # Conversation summarization
 ├── config/                   # Contacts & knowledge (gitignored)
 ├── prompts/                  # Prompt templates
 ├── scripts/                  # Data extraction tools
