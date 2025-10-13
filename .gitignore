@@ -67,3 +67,8 @@ htmlcov/
 
 # macOS iMessage database
 ~/Library/Messages/chat.db
+
+# Data exports (contains personal messages)
+data/exports/*.txt
+data/exports/*.json
+data/exports/*.csv
