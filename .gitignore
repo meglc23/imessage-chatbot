@@ -53,10 +53,6 @@ chat.db
 config/contacts.py
 config/knowledge_base.py
 
-# Old structure (backward compatibility)
-consts/contacts.py
-consts/meg_knowledge.py
-
 # Testing outputs
 .pytest_cache/
 .coverage
@@ -72,3 +68,10 @@ htmlcov/
 data/exports/*.txt
 data/exports/*.json
 data/exports/*.csv
+
+# Training data (contains datasets and curated conversations)
+data/training_data/
+data/training_data/*.json
+data/training_data/*.csv
+data/training_data/*.tsv
+data/training_data/*.txt
