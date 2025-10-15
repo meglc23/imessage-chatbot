@@ -19,7 +19,7 @@ from utils.imessage_utils import decode_attributed_body
 load_dotenv()
 
 
-def parse_home_messages(chat_name: str = None, count: int = 1000):
+def parse_thread_messages(chat_name: str = None, count: int = 1000):
     """
     Extract messages from a specific chat and save to txt file.
 
@@ -175,7 +175,7 @@ def extract_messages_for_tests(chat_name: str = None, count: int = 30) -> list:
         List of message dictionaries with 'id', 'sender', 'text', 'time', 'is_from_me' keys
     """
     if chat_name is None:
-        chat_name = os.getenv("CHAT_NAME", "Home")
+        chat_name = os.getenv("CHAT_NAME", "TestChat")
 
     try:
         db_path = os.path.expanduser("~/Library/Messages/chat.db")
@@ -296,7 +296,7 @@ if __name__ == "__main__":
     import sys
 
     # Get chat name and count from command line arguments
-    chat_name = sys.argv[1] if len(sys.argv) > 1 else "Home"
+    chat_name = sys.argv[1] if len(sys.argv) > 1 else os.getenv("CHAT_NAME", "TestChat")
     count = int(sys.argv[2]) if len(sys.argv) > 2 else 1000
 
     print(f"iMessage Thread Parser")
@@ -304,7 +304,7 @@ if __name__ == "__main__":
     print(f"Messages to retrieve: {count}")
     print("=" * 60)
 
-    result = parse_home_messages(chat_name, count)
+    result = parse_thread_messages(chat_name, count)
 
     if result:
         print(f"\n✓ Done! Messages saved to: {result}")

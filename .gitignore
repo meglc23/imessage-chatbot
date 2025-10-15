@@ -52,6 +52,7 @@ chat.db
 # Sensitive personal data
 config/contacts.py
 config/knowledge_base.py
+training/thread_names.py
 
 # Testing outputs
 .pytest_cache/
@@ -70,8 +71,5 @@ data/exports/*.json
 data/exports/*.csv
 
 # Training data (contains datasets and curated conversations)
-data/training_data/
-data/training_data/*.json
-data/training_data/*.csv
-data/training_data/*.tsv
-data/training_data/*.txt
+training/raw/
+training/processed/
