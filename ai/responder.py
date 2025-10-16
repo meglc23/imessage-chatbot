@@ -19,13 +19,15 @@ from config.contacts import CONTACT_ALIASES, get_mom_contacts, get_dad_contacts
 from prompts.system_prompts import (
     SYSTEM_PROMPT,
     RESPONSE_GENERATION_INSTRUCTIONS,
-    SUMMARY_RESPONSE_PROMPT_TEMPLATE,
     SUMMARY_GENERATION_PROMPT_TEMPLATE,
     STARTUP_TOPIC_PROMPT_TEMPLATE
 )
 
 # Import planner
 from ai.planner import plan_response, should_respond_with_plan
+
+# Import shared conversation utilities
+from ai.conversation_utils import format_messages_to_role_string
 
 # Model configuration
 ANTHROPIC_RESPONSE_MODEL = "claude-3-5-haiku-20241022"
@@ -70,7 +72,16 @@ class AIResponder:
                 api_key = os.getenv("OPENAI_API_KEY")
         self.provider = provider.lower()
         self.knowledge_base = MEG_KNOWLEDGE
-        self.system_prompt = SYSTEM_PROMPT
+
+        # Build system prompt with knowledge base at runtime
+        self.system_prompt = f"""{SYSTEM_PROMPT}
+
+IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
+{MEG_KNOWLEDGE}
+
+{RESPONSE_GENERATION_INSTRUCTIONS}
+"""
+
         self.bot_name = os.getenv("BOT_NAME", "Meg")
         self.last_reply: Optional[str] = None
 
@@ -98,30 +109,148 @@ class AIResponder:
 
     def alias_sender(self, sender: str) -> str:
         """
-        Map raw sender identifiers (emails/names) to preferred display names.
-        - User (Meg) → "我"
-        - Mom's email → "妈咪"
-        - Heuristics for Dad/Mom names in Chinese/English
+        Map raw sender identifiers to Chinese display names.
+
+        Only used by external summarizer.py for generating Chinese summaries.
+        For internal use, prefer _get_relationship_hint() which returns role labels.
         """
         if not sender:
             return sender
         key = sender.strip().lower()
 
-        # User aliases
-        if key in {"meg", "me", "chen"}:
-            return "我"
-
-        # Explicit contact aliases (emails)
+        # Contact aliases from config (email/phone → Chinese name)
         if key in CONTACT_ALIASES:
             return CONTACT_ALIASES[key]
 
-        # Heuristic: Dad / Mom in common variants
-        if any(tok in key for tok in ["爸", "爸爸", "dad", "father", "baba"]):
-            return "爸爸"
-        if any(tok in key for tok in ["妈", "妈妈", "妈咪", "mom", "mother", "mami"]):
-            return "妈咪"
-
         return sender
+
+    def _get_relationship_hint(self, sender: str) -> tuple[str, str]:
+        """
+        Determine relationship and alias for a sender.
+
+        Returns:
+            (relationship_hint, sender_alias) tuple
+            - relationship_hint: "mom", "dad", or "other"
+            - sender_alias: "妈咪", "爸爸", or aliased name
+        """
+        mom_contacts = {val for val in (
+            (get_mom_contacts().get("email") or "").lower(),
+            (get_mom_contacts().get("phone") or "").lower()
+        ) if val}
+        dad_contacts = {val for val in (
+            (get_dad_contacts().get("email") or "").lower(),
+            (get_dad_contacts().get("phone") or "").lower()
+        ) if val}
+
+        sender_lower = (sender or "").lower()
+        if sender_lower in mom_contacts:
+            return "mom", "妈咪"
+        elif sender_lower in dad_contacts:
+            return "dad", "爸爸"
+        else:
+            return "other", self.alias_sender(sender or 'Unknown')
+
+    def _get_last_bot_reply(self, messages: List[Dict[str, str]]) -> Optional[str]:
+        """Find the last bot reply in the message list."""
+        for msg in reversed(messages):
+            sender_raw = msg.get('sender', '')
+            if msg.get('is_from_me') or sender_raw.lower() == self.bot_name.lower():
+                return msg['text']
+
+        # Fall back to stored last reply
+        if self.last_reply:
+            _debug_log("No previous bot reply detected in history; falling back to stored last reply")
+            return self.last_reply
+
+        _debug_log("No previous bot reply detected in recent history")
+        return None
+
+    def _format_conversation_history_string(self, messages: List[Dict[str, str]]) -> str:
+        """Format messages into [role] string format for planner."""
+        return format_messages_to_role_string(messages, self.bot_name)
+
+    def _build_length_instruction(self, intent: str, response_length: str) -> str:
+        """Build length instruction based on intent and desired length."""
+        if intent == "answer_question":
+            length_instructions = {
+                "minimal": "Answer briefly in 1-2 sentences. If you don't know, say so honestly and encourage them to explain.",
+                "short": "Answer in 1-2 sentences. If uncertain, admit it naturally and invite more context.",
+                "medium": "Answer thoughtfully in 2-3 sentences. If you don't have enough info, be honest and ask them to share more."
+            }
+        else:
+            length_instructions = {
+                "minimal": "Reply in 1 very short sentence only.",
+                "short": "Reply in 1-2 brief sentences.",
+                "medium": "Reply in 2-3 sentences, you can be more thoughtful and detailed."
+            }
+        return length_instructions.get(response_length, length_instructions['short'])
+
+    def _format_messages_for_api(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """
+        Convert conversation history into Anthropic multi-turn message format.
+
+        Rules:
+        - Messages from bot/me → role: "assistant"
+        - Messages from others → role: "user" with simple role label [mom]/[dad]/[other]
+        - Consecutive messages from real users are merged into one "user" message
+        - Returns alternating user/assistant messages
+        """
+        if not messages:
+            return []
+
+        api_messages = []
+        pending_user_messages = []
+
+        for msg in messages:
+            text = msg['text']
+            is_bot = (
+                msg.get('is_from_me') or
+                (msg.get('sender') or "").lower() == self.bot_name.lower()
+            )
+
+            if is_bot:
+                # Flush any pending user messages first
+                if pending_user_messages:
+                    api_messages.append({
+                        "role": "user",
+                        "content": "\n".join(pending_user_messages)
+                    })
+                    pending_user_messages = []
+
+                # Add bot message as assistant
+                api_messages.append({
+                    "role": "assistant",
+                    "content": text  # Bot messages don't need sender label
+                })
+            else:
+                # Get simple role identifier
+                relationship, _ = self._get_relationship_hint(msg['sender'])
+
+                # Format with simple role label
+                if msg.get('is_reaction', False):
+                    formatted_text = f"[{relationship}] {text}"
+                else:
+                    formatted_text = f"[{relationship}] {text}"
+
+                # Accumulate user messages
+                pending_user_messages.append(formatted_text)
+
+        # Flush any remaining user messages
+        if pending_user_messages:
+            api_messages.append({
+                "role": "user",
+                "content": "\n".join(pending_user_messages)
+            })
+
+        # Anthropic API requires messages to start with "user" role
+        # If first message is assistant, prepend a user context message
+        if api_messages and api_messages[0]["role"] == "assistant":
+            api_messages.insert(0, {
+                "role": "user",
+                "content": "[context] Conversation started"
+            })
+
+        return api_messages
 
     def set_system_prompt(self, prompt: str):
         """Set a custom system prompt."""
@@ -130,7 +259,7 @@ class AIResponder:
     def generate_response(
         self,
         messages: List[Dict[str, str]],
-        max_tokens: int = 80
+        max_tokens: int = 100
     ) -> Optional[str]:
         """
         Generate a response based on the conversation history.
@@ -163,9 +292,8 @@ class AIResponder:
         _debug_log(f"generate_response: Latest message from {latest_message.get('sender')}: {latest_parent_text[:100]}")
 
         has_bot_message = any(
-            msg.get('is_from_me')
-            or self.alias_sender(msg['sender']) == "我"
-            or (msg.get('sender') or "").lower() == self.bot_name.lower()
+            msg.get('is_from_me') or
+            (msg.get('sender') or "").lower() == self.bot_name.lower()
             for msg in recent_messages
         )
         if not has_bot_message and self.last_reply:
@@ -181,57 +309,21 @@ class AIResponder:
             _debug_log("Appended cached bot reply to history because DB snapshot lacked it.")
             if len(recent_messages) > 10:
                 recent_messages = recent_messages[-10:]
-        last_bot_reply = None
-        for msg in reversed(recent_messages):
-            alias = self.alias_sender(msg['sender'])
-            sender_raw = msg.get('sender', '')
-            _debug_log(
-                f"Inspecting message for prior reply detection: sender={sender_raw}, alias={alias}, "
-                f"is_from_me={msg.get('is_from_me')}, text={msg.get('text')}"
-            )
-            if msg.get('is_from_me') or alias == "我" or sender_raw == os.getenv("BOT_NAME"):
-                last_bot_reply = msg['text']
-                _debug_log(f"Detected previous bot reply (alias={alias}, sender={sender_raw}): {last_bot_reply}")
-                break
 
-        if last_bot_reply is None:
-            if self.last_reply:
-                last_bot_reply = self.last_reply
-                _debug_log("No previous bot reply detected in history; falling back to stored last reply")
-            else:
-                _debug_log("No previous bot reply detected in recent history")
+        # Get last bot reply using helper
+        last_bot_reply = self._get_last_bot_reply(recent_messages)
 
-        # Format conversation history, marking reactions distinctly
-        conversation_history_lines = []
-        for msg in recent_messages:
-            sender_alias = self.alias_sender(msg['sender'])
-            text = msg['text']
-            # Check if this is a reaction
-            if msg.get('is_reaction', False):
-                conversation_history_lines.append(f"{sender_alias} {text}")
-            else:
-                conversation_history_lines.append(f"{sender_alias}: {text}")
-        conversation_history = "\n".join(conversation_history_lines)
+        # Convert to multi-turn API format
+        conversation_messages = self._format_messages_for_api(recent_messages)
+        _debug_log(f"Converted {len(recent_messages)} messages into {len(conversation_messages)} API messages")
+        for i, msg in enumerate(conversation_messages):
+            _debug_log(f"  API message {i}: role={msg['role']}, content_length={len(msg['content'])}")
 
-        mom_contacts = {val for val in (
-            (get_mom_contacts().get("email") or "").lower(),
-            (get_mom_contacts().get("phone") or "").lower()
-        ) if val}
-        dad_contacts = {val for val in (
-            (get_dad_contacts().get("email") or "").lower(),
-            (get_dad_contacts().get("phone") or "").lower()
-        ) if val}
+        # Format string for planner
+        conversation_history = self._format_conversation_history_string(recent_messages)
 
-        latest_sender_raw = (latest_message.get('sender') or "").lower()
-        if latest_sender_raw in mom_contacts:
-            relationship_hint = "mom"
-            latest_sender_alias = "妈咪"
-        elif latest_sender_raw in dad_contacts:
-            relationship_hint = "dad"
-            latest_sender_alias = "爸爸"
-        else:
-            relationship_hint = "other"
-            latest_sender_alias = self.alias_sender(latest_message.get('sender', 'Unknown'))
+        # Get relationship hint for planner
+        relationship_hint, _ = self._get_relationship_hint(latest_message.get('sender'))
 
         _debug_log(f"AI context latest message: sender={latest_message.get('sender')}, text={latest_parent_text}")
 
@@ -253,24 +345,10 @@ class AIResponder:
 
         _debug_log("generate_response: Planner approved response - proceeding with generation")
 
-        # Build prompt with knowledge base and planning context
-        # Map response_length to specific instructions, adjusted by intent
+        # Build planning context using helper
         intent = plan.get('intent', 'ack')
         response_length = plan.get('response_length', 'short')
-
-        if intent == "answer_question":
-            length_instructions = {
-                "minimal": "Answer briefly in 1-2 sentences. If you don't know, say so honestly and encourage them to explain.",
-                "short": "Answer in 1-2 sentences. If uncertain, admit it naturally and invite more context.",
-                "medium": "Answer thoughtfully in 2-3 sentences. If you don't have enough info, be honest and ask them to share more."
-            }
-        else:
-            length_instructions = {
-                "minimal": "Reply in 1 very short sentence only.",
-                "short": "Reply in 1-2 brief sentences.",
-                "medium": "Reply in 2-3 sentences, you can be more thoughtful and detailed."
-            }
-        length_instruction = length_instructions.get(response_length, length_instructions['short'])
+        length_instruction = self._build_length_instruction(intent, response_length)
 
         planning_context = f"""
 PLANNING CONTEXT:
@@ -281,52 +359,43 @@ PLANNING CONTEXT:
 - Hint: {plan['hint']}
 """
         
-        user_prompt = f"""Here's the recent conversation:
+        # Build context prompt
+        context_prompt = f"""
+            {planning_context}
+        Now respond. Be brief and natural."""
 
-{conversation_history}
-
-Latest message came from: {latest_sender_alias} (relationship: {relationship_hint})
-Latest message text: 「{latest_parent_text}」
-
----
-
-IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
-{self.knowledge_base}
-
----
-
-{RESPONSE_GENERATION_INSTRUCTIONS}
-
-{planning_context}
-
-Your previous reply (do NOT rehash this unless the latest parent message explicitly asks again): {last_bot_reply or "None"}
-
-Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
+        # Append context as final user message
+        if conversation_messages and conversation_messages[-1]["role"] == "user":
+            # Append to last user message
+            conversation_messages[-1]["content"] += f"\n\n{context_prompt}"
+        else:
+            # Add as new user message
+            conversation_messages.append({
+                "role": "user",
+                "content": context_prompt
+            })
 
         try:
             _debug_log(f"generate_response: Calling {self.provider} API with model={self.model}, max_tokens={max_tokens}")
+            _debug_log(f"generate_response: Using {len(conversation_messages)} multi-turn messages")
 
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=max_tokens,
                     system=self.system_prompt,
-                    messages=[{
-                        "role": "user",
-                        "content": user_prompt
-                    }]
+                    messages=conversation_messages
                 )
                 reply = response.content[0].text.strip()
                 _debug_log(f"generate_response: Received response from Anthropic (length={len(reply)} chars)")
 
             elif self.provider == "openai":
+                # OpenAI uses different format - combine system with messages
+                openai_messages = [{"role": "system", "content": self.system_prompt}] + conversation_messages
                 response = self.client.chat.completions.create(
                     model=self.model,
                     max_tokens=max_tokens,
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ]
+                    messages=openai_messages
                 )
                 reply = response.choices[0].message.content.strip()
                 _debug_log(f"generate_response: Received response from OpenAI (length={len(reply)} chars)")
@@ -413,53 +482,6 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
         self,
         messages: List[Dict[str, str]],
         summary: str,
-        max_tokens: int = 60
-    ) -> Optional[str]:
-        """Generate a follow-up response using a conversation summary."""
-
-        if not messages or not summary:
-            return None
-
-        conversation_history = self._format_conversation_text(messages, for_summary=False)
-        prompt = SUMMARY_RESPONSE_PROMPT_TEMPLATE.format(
-            summary=summary,
-            conversation_history=conversation_history
-        )
-
-        try:
-            if self.provider == "anthropic":
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    system=self.system_prompt,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                reply = response.content[0].text.strip()
-            elif self.provider == "openai":
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                reply = response.choices[0].message.content.strip()
-            else:
-                return None
-
-            if not reply or reply.upper() == "SKIP":
-                return None
-
-            return reply
-        except Exception as e:
-            print(f"✗ Error generating summary response: {e}")
-            return None
-
-    def generate_response_with_summary(
-        self,
-        messages: List[Dict[str, str]],
-        summary: str,
         max_tokens: int = 80
     ) -> Optional[str]:
         """
@@ -485,45 +507,20 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
 
         recent_messages = ordered_messages[-10:]
 
-        # Format conversation history
-        conversation_history_lines = []
-        for msg in recent_messages:
-            sender_alias = self.alias_sender(msg['sender'])
-            text = msg['text']
-            if msg.get('is_reaction', False):
-                conversation_history_lines.append(f"{sender_alias} {text}")
-            else:
-                conversation_history_lines.append(f"{sender_alias}: {text}")
-        conversation_history = "\n".join(conversation_history_lines)
+        # Convert to multi-turn API format
+        conversation_messages = self._format_messages_for_api(recent_messages)
+
+        # Format string for planner
+        conversation_history = self._format_conversation_history_string(recent_messages)
 
         latest_message = ordered_messages[-1]
-        latest_sender_alias = self.alias_sender(latest_message.get('sender', 'Unknown'))
         latest_parent_text = latest_message['text']
 
-        # Detect sender relationship for context
-        mom_contacts = {val for val in (
-            (get_mom_contacts().get("email") or "").lower(),
-            (get_mom_contacts().get("phone") or "").lower()
-        ) if val}
-        dad_contacts = {val for val in (
-            (get_dad_contacts().get("email") or "").lower(),
-            (get_dad_contacts().get("phone") or "").lower()
-        ) if val}
+        # Get relationship hint for planner
+        relationship_hint, _ = self._get_relationship_hint(latest_message.get('sender'))
 
-        latest_sender_raw = (latest_message.get('sender') or "").lower()
-        if latest_sender_raw in mom_contacts:
-            relationship_hint = "mom"
-        elif latest_sender_raw in dad_contacts:
-            relationship_hint = "dad"
-        else:
-            relationship_hint = "other"
-
-        # Find last bot reply
-        last_bot_reply = None
-        for msg in reversed(recent_messages):
-            if msg.get('is_from_me') or self.alias_sender(msg['sender']) == "我":
-                last_bot_reply = msg['text']
-                break
+        # Get last bot reply using helper
+        last_bot_reply = self._get_last_bot_reply(recent_messages)
 
         # Use planner to determine response strategy
         plan = plan_response(
@@ -533,29 +530,16 @@ Now respond. Be SUPER brief and natural - 1 sentence if possible:"""
             last_bot_reply=last_bot_reply
         )
         _debug_log(f"Summary-aware planner result: {plan}")
-        
+
         # Check if we should respond based on the plan
         if not should_respond_with_plan(plan):
             _debug_log("Summary-aware planner determined not to respond")
             return None
 
-        # Build planning context for summary response
+        # Build planning context using helper
         intent = plan.get('intent', 'ack')
         response_length = plan.get('response_length', 'short')
-
-        if intent == "answer_question":
-            length_instructions = {
-                "minimal": "Answer briefly in 1-2 sentences. If you don't know, say so honestly and encourage them to explain.",
-                "short": "Answer in 1-2 sentences. If uncertain, admit it naturally and invite more context.",
-                "medium": "Answer thoughtfully in 2-3 sentences. If you don't have enough info, be honest and ask them to share more."
-            }
-        else:
-            length_instructions = {
-                "minimal": "Reply in 1 very short sentence only.",
-                "short": "Reply in 1-2 brief sentences.",
-                "medium": "Reply in 2-3 sentences, you can be more thoughtful and detailed."
-            }
-        length_instruction = length_instructions.get(response_length, length_instructions['short'])
+        length_instruction = self._build_length_instruction(intent, response_length)
 
         planning_context = f"""
 PLANNING CONTEXT:
@@ -566,31 +550,42 @@ PLANNING CONTEXT:
 - Hint: {plan['hint']}
 """
 
-        summary_aware_prompt = SUMMARY_RESPONSE_PROMPT_TEMPLATE.format(
-            summary=summary,
-            conversation_history=conversation_history
-        ) + f"\n\n{planning_context}"
+        # Build summary instruction (conversation history is in multi-turn messages above)
+        summary_instruction = f"""Conversation Summary:
+{summary}
+
+{planning_context}
+
+Task: Based on the summary and conversation above, if there are unanswered questions or pending items, respond briefly (1 sentence). Otherwise return "SKIP".
+
+Your response:"""
+
+        # Append summary instruction to conversation messages
+        if conversation_messages and conversation_messages[-1]["role"] == "user":
+            conversation_messages[-1]["content"] += f"\n\n{summary_instruction}"
+        else:
+            conversation_messages.append({
+                "role": "user",
+                "content": summary_instruction
+            })
 
         try:
+            _debug_log(f"Summary-aware: Using {len(conversation_messages)} multi-turn messages")
+
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=max_tokens,
                     system=self.system_prompt,
-                    messages=[{
-                        "role": "user",
-                        "content": summary_aware_prompt
-                    }]
+                    messages=conversation_messages
                 )
                 reply = response.content[0].text.strip()
             elif self.provider == "openai":
+                openai_messages = [{"role": "system", "content": self.system_prompt}] + conversation_messages
                 response = self.client.chat.completions.create(
                     model=self.model,
                     max_tokens=max_tokens,
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": summary_aware_prompt}
-                    ]
+                    messages=openai_messages
                 )
                 reply = response.choices[0].message.content.strip()
             else:

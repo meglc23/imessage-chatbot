@@ -1,324 +1,235 @@
 #!/usr/bin/env python3
 """
-Test the AI planner with real message data from iMessage database
+Test AI Planner with multi-turn format
+Shows full API calls and prompts
 """
 
 import sys
 import os
+import json
+import unittest
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from ai import planner as planner_module
 from ai.planner import plan_response, should_respond_with_plan
-from scripts.parse_thread import extract_messages_for_tests, build_test_scenarios
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
-class TestPlanner:
-    """Test suite for AI planner"""
+def print_api_call(title, messages_sent):
+    """Pretty print planner API call"""
+    print("\n" + "="*80)
+    print(f"  {title}")
+    print("="*80)
 
-    def __init__(self):
-        self.test_results = []
+    print("\nModel: claude-3-haiku-20240307 (Planner)")
+    print("Max Tokens: 200")
 
-    def test_real_messages(self, count: int = 50, max_scenarios: int = 10):
-        """
-        Test planner with real messages from iMessage database.
+    print("\n" + "-"*80)
+    print("MESSAGES SENT TO PLANNER API:")
+    print("-"*80)
 
-        Args:
-            count: Number of messages to extract from database
-            max_scenarios: Maximum number of test scenarios to run
-        """
-        print("\n" + "="*80)
-        print("Testing AI Planner with Real Message Data")
-        print("="*80)
-
-        # Extract messages
-        print("\n1. Extracting messages from iMessage database...")
-        messages = extract_messages_for_tests(count=count)
-
-        if not messages:
-            print("✗ Failed to extract messages. Check database permissions.")
-            return False
-
-        print(f"✓ Extracted {len(messages)} messages")
-
-        # Build test scenarios
-        print("\n2. Building test scenarios...")
-        scenarios = build_test_scenarios(messages)
-
-        if not scenarios:
-            print("✗ No valid test scenarios created")
-            return False
-
-        print(f"✓ Created {len(scenarios)} test scenarios")
-
-        # Run tests on each scenario
-        print(f"\n3. Testing planner on {min(len(scenarios), max_scenarios)} scenarios...")
-        print("-"*80)
-
-        for idx, scenario in enumerate(scenarios[:max_scenarios], 1):
-            self._test_scenario(idx, scenario)
-
-        # Print summary
-        self._print_summary()
-
-        return True
-
-    def _test_scenario(self, idx: int, scenario: dict):
-        """Test a single scenario"""
-        print(f"\nScenario {idx}:")
-        print(f"  Timestamp: {scenario['timestamp']}")
-        print(f"  Sender: {scenario['sender']}")
-        print(f"  Message: {scenario['new_message']}")
-        print(f"  History (last 3 lines):")
-        history_lines = scenario['history'].split('\n')
-        for line in history_lines[-3:]:
+    for i, msg in enumerate(messages_sent, 1):
+        print(f"\nMessage {i}:")
+        print(f"  Role: {msg['role']}")
+        print(f"  Content:")
+        content = msg['content']
+        for line in content.split('\n'):
             print(f"    {line}")
 
-        # Determine sender relationship
-        sender_info = "other"
-        sender_lower = scenario['sender'].lower()
-        if any(x in sender_lower for x in ['mom', '妈', 'mother']):
-            sender_info = "mom"
-        elif any(x in sender_lower for x in ['dad', '爸', 'father']):
-            sender_info = "dad"
+    print("\n" + "-"*80)
+    print("FULL JSON:")
+    print("-"*80)
+    print(json.dumps(messages_sent, indent=2, ensure_ascii=False))
+    print("="*80 + "\n")
 
-        # Get last bot reply from history (if any)
-        last_bot_reply = None
-        for line in reversed(history_lines):
-            if line.startswith("Me:"):
-                last_bot_reply = line[3:].strip()
-                break
 
-        # Call planner
-        try:
+class TestPlanner(unittest.TestCase):
+
+    def test_simple_question(self):
+        """Test 1: Simple question planning"""
+        captured_messages = []
+
+        def mock_call_model(messages):
+            nonlocal captured_messages
+            captured_messages = messages
+            return json.dumps({
+                "should_respond": True,
+                "intent": "answer_question",
+                "tone": "caring",
+                "response_length": "short",
+                "topic": "family",
+                "hint": "be warm"
+            })
+
+        with patch.object(planner_module, '_call_model', side_effect=mock_call_model):
+            history = "[mom] 最近怎么样？"
+            new_msg = "最近怎么样？"
+
             plan = plan_response(
-                history=scenario['history'],
-                new_msg=scenario['new_message'],
-                sender_info=sender_info,
-                last_bot_reply=last_bot_reply
+                history=history,
+                new_msg=new_msg,
+                sender_info="mom"
             )
 
-            # Check if should respond
-            should_respond = should_respond_with_plan(plan)
+            print_api_call("TEST 1: Simple Question", captured_messages)
 
-            # Display results
-            print(f"\n  Planner Output:")
-            print(f"    Should Respond: {plan.get('should_respond')} (after filter: {should_respond})")
-            print(f"    Intent: {plan.get('intent')}")
-            print(f"    Tone: {plan.get('tone')}")
-            print(f"    Response Length: {plan.get('response_length')}")
-            print(f"    Topic: {plan.get('topic')}")
-            print(f"    Hint: {plan.get('hint')}")
+            print(f"Plan Result:")
+            print(json.dumps(plan, indent=2, ensure_ascii=False))
+            print()
 
-            # Validate plan structure
-            is_valid = self._validate_plan(plan)
+            self.assertTrue(plan.get('should_respond'))
+            self.assertEqual(plan.get('intent'), 'answer_question')
 
-            # Store result
-            self.test_results.append({
-                'scenario_id': idx,
-                'message': scenario['new_message'],
-                'plan': plan,
-                'should_respond': should_respond,
-                'valid': is_valid,
-                'sender_info': sender_info
+    def test_multi_turn_conversation(self):
+        """Test 2: Multi-turn conversation with bot history"""
+        captured_messages = []
+
+        def mock_call_model(messages):
+            nonlocal captured_messages
+            captured_messages = messages
+            return json.dumps({
+                "should_respond": True,
+                "intent": "ask_followup",
+                "tone": "playful",
+                "response_length": "medium",
+                "topic": "weekend",
+                "hint": "be enthusiastic"
             })
 
-            if is_valid:
-                print(f"  ✓ Plan structure valid")
-            else:
-                print(f"  ✗ Plan structure invalid")
+        with patch.object(planner_module, '_call_model', side_effect=mock_call_model):
+            # History with bot's previous reply
+            history = """[dad] 崽，今天天气怎么样？
+[me] 挺好的，天气不错
+[mom] 记得多喝水哦
+[me] 好的妈咪"""
 
-        except Exception as e:
-            print(f"  ✗ Error: {e}")
-            self.test_results.append({
-                'scenario_id': idx,
-                'message': scenario['new_message'],
-                'error': str(e),
-                'valid': False
+            new_msg = "周末有什么计划吗？"
+
+            plan = plan_response(
+                history=history,
+                new_msg=new_msg,
+                sender_info="dad",
+                last_bot_reply="好的妈咪"
+            )
+
+            print_api_call("TEST 2: Multi-turn with Bot History", captured_messages)
+
+            print(f"Plan Result:")
+            print(json.dumps(plan, indent=2, ensure_ascii=False))
+            print()
+
+            # Verify multi-turn structure
+            # Should have: [user: dad] -> [assistant: me] -> [user: mom] -> [assistant: me] -> [user: planning instructions]
+            self.assertTrue(len(captured_messages) >= 4)
+
+            # Check alternating pattern
+            self.assertEqual(captured_messages[0]['role'], 'user')
+            self.assertIn('[dad]', captured_messages[0]['content'])
+
+            self.assertEqual(captured_messages[1]['role'], 'assistant')
+            self.assertIn('挺好的，天气不错', captured_messages[1]['content'])
+
+            self.assertEqual(captured_messages[2]['role'], 'user')
+            self.assertIn('[mom]', captured_messages[2]['content'])
+
+            self.assertEqual(captured_messages[3]['role'], 'assistant')
+            self.assertIn('好的妈咪', captured_messages[3]['content'])
+
+            print("✓ Verified multi-turn alternating pattern")
+            print("✓ Bot replies ([me]) correctly converted to assistant role\n")
+
+    def test_merged_user_messages(self):
+        """Test 3: Mom and Dad both send messages between bot replies"""
+        captured_messages = []
+
+        def mock_call_model(messages):
+            nonlocal captured_messages
+            captured_messages = messages
+            return json.dumps({
+                "should_respond": True,
+                "intent": "reflect",
+                "tone": "caring",
+                "response_length": "medium",
+                "topic": "plans",
+                "hint": "be thoughtful"
             })
 
-        print("-"*80)
+        with patch.object(planner_module, '_call_model', side_effect=mock_call_model):
+            # Dad and mom both send messages between bot replies
+            history = """[dad] 崽，最近工作忙吗？
+[mom] 对啊，别太累了
+[me] 还好，项目进展不错
+[dad] 周末有什么计划吗？
+[mom] 要不要回来看看？"""
 
-    def _validate_plan(self, plan: dict) -> bool:
-        """Validate that plan has correct structure and values"""
-        required_fields = ['should_respond', 'intent', 'tone', 'response_length', 'topic', 'hint']
+            new_msg = "周末有什么计划吗？"
 
-        # Check all fields present
-        for field in required_fields:
-            if field not in plan:
-                print(f"    Missing field: {field}")
-                return False
+            plan = plan_response(
+                history=history,
+                new_msg=new_msg,
+                sender_info="dad",
+                last_bot_reply="还好，项目进展不错"
+            )
 
-        # Validate field values
-        valid_intents = ["ack", "ask_followup", "share_story", "reflect", "answer_question"]
-        valid_tones = ["playful", "caring", "neutral", "enthusiastic"]
-        valid_lengths = ["minimal", "short", "medium"]
+            print_api_call("TEST 3: Mom & Dad Messages Merged", captured_messages)
 
-        if plan['intent'] not in valid_intents:
-            print(f"    Invalid intent: {plan['intent']}")
-            return False
+            print(f"Plan Result:")
+            print(json.dumps(plan, indent=2, ensure_ascii=False))
+            print()
 
-        if plan['tone'] not in valid_tones:
-            print(f"    Invalid tone: {plan['tone']}")
-            return False
+            # Verify: First message should have both [dad] and [mom] merged
+            first_user = captured_messages[0]
+            self.assertEqual(first_user['role'], 'user')
+            self.assertIn('[dad]', first_user['content'])
+            self.assertIn('[mom]', first_user['content'])
 
-        if plan['response_length'] not in valid_lengths:
-            print(f"    Invalid response_length: {plan['response_length']}")
-            return False
+            print("✓ Verified [dad] and [mom] messages are merged in first user message")
+            print("✓ Multi-turn structure preserved\n")
 
-        if not isinstance(plan['should_respond'], bool):
-            print(f"    should_respond is not boolean: {type(plan['should_respond'])}")
-            return False
-
-        return True
-
-    def _print_summary(self):
-        """Print test summary"""
+    def test_should_respond_logic(self):
+        """Test 4: Should respond decision logic"""
         print("\n" + "="*80)
-        print("Test Summary")
-        print("="*80)
+        print("  TEST 4: Should Respond Logic")
+        print("="*80 + "\n")
 
-        total = len(self.test_results)
-        valid = sum(1 for r in self.test_results if r.get('valid', False))
-        should_respond_count = sum(1 for r in self.test_results if r.get('should_respond', False))
+        # Test 1: Should respond to question
+        plan1 = {
+            "should_respond": True,
+            "intent": "answer_question",
+            "response_length": "short"
+        }
+        result1 = should_respond_with_plan(plan1)
+        print(f"Question (should_respond=True, intent=answer_question)")
+        print(f"  → Should respond: {result1}")
+        self.assertTrue(result1)
 
-        print(f"\nTotal scenarios tested: {total}")
-        print(f"Valid plans: {valid}/{total}")
-        print(f"Should respond: {should_respond_count}/{total}")
+        # Test 2: Should skip minimal ack (50% chance, but we can test the logic)
+        plan2 = {
+            "should_respond": True,
+            "intent": "ack",
+            "response_length": "minimal"
+        }
+        print(f"\nMinimal ack (should_respond=True, intent=ack, length=minimal)")
+        print(f"  → Has 50% random filter (may skip)")
 
-        # Intent distribution
-        intents = {}
-        for result in self.test_results:
-            if 'plan' in result:
-                intent = result['plan'].get('intent', 'unknown')
-                intents[intent] = intents.get(intent, 0) + 1
+        # Test 3: Should not respond if plan says no
+        plan3 = {
+            "should_respond": False,
+            "intent": "ack",
+            "response_length": "short"
+        }
+        result3 = should_respond_with_plan(plan3)
+        print(f"\nPlan says no (should_respond=False)")
+        print(f"  → Should respond: {result3}")
+        self.assertFalse(result3)
 
-        print(f"\nIntent Distribution:")
-        for intent, count in sorted(intents.items()):
-            print(f"  {intent}: {count}")
-
-        # Tone distribution
-        tones = {}
-        for result in self.test_results:
-            if 'plan' in result:
-                tone = result['plan'].get('tone', 'unknown')
-                tones[tone] = tones.get(tone, 0) + 1
-
-        print(f"\nTone Distribution:")
-        for tone, count in sorted(tones.items()):
-            print(f"  {tone}: {count}")
-
-        # Response length distribution
-        lengths = {}
-        for result in self.test_results:
-            if 'plan' in result:
-                length = result['plan'].get('response_length', 'unknown')
-                lengths[length] = lengths.get(length, 0) + 1
-
-        print(f"\nResponse Length Distribution:")
-        for length, count in sorted(lengths.items()):
-            print(f"  {length}: {count}")
-
-        print("\n" + "="*80)
-
-    def test_edge_cases(self):
-        """Test planner with edge cases"""
-        print("\n" + "="*80)
-        print("Testing Edge Cases")
-        print("="*80)
-
-        test_cases = [
-            {
-                'name': 'Empty history',
-                'history': '',
-                'new_msg': '在吗？',
-                'sender_info': 'mom'
-            },
-            {
-                'name': 'Question with ?',
-                'history': 'Me: 我在工作\n妈咪: 好的',
-                'new_msg': '你那边天气怎么样？',
-                'sender_info': 'mom'
-            },
-            {
-                'name': 'Simple acknowledgment',
-                'history': 'Me: 我今天很忙\n妈咪: 好的',
-                'new_msg': '嗯嗯',
-                'sender_info': 'mom'
-            },
-            {
-                'name': 'Generic greeting',
-                'history': 'Me: 早\n妈咪: 早',
-                'new_msg': '早',
-                'sender_info': 'dad'
-            },
-            {
-                'name': 'Complex question',
-                'history': 'Me: 我最近在做项目\n妈咪: 什么项目？',
-                'new_msg': '你这个项目要做到什么时候啊？',
-                'sender_info': 'mom'
-            }
-        ]
-
-        for idx, case in enumerate(test_cases, 1):
-            print(f"\nEdge Case {idx}: {case['name']}")
-            print(f"  Message: {case['new_msg']}")
-
-            try:
-                plan = plan_response(
-                    history=case['history'],
-                    new_msg=case['new_msg'],
-                    sender_info=case['sender_info']
-                )
-
-                should_respond = should_respond_with_plan(plan)
-
-                print(f"  Should Respond: {plan.get('should_respond')} (after filter: {should_respond})")
-                print(f"  Intent: {plan.get('intent')}")
-                print(f"  Response Length: {plan.get('response_length')}")
-
-                # Special assertions
-                if '?' in case['new_msg'] or '吗' in case['new_msg']:
-                    if plan.get('intent') == 'answer_question':
-                        print(f"  ✓ Correctly identified as question")
-                    else:
-                        print(f"  ⚠ Expected answer_question intent for question")
-
-                if case['new_msg'] in ['嗯嗯', '好', '哦']:
-                    if not plan.get('should_respond'):
-                        print(f"  ✓ Correctly decided not to respond to minimal ack")
-                    else:
-                        print(f"  ⚠ May want to skip response to minimal ack")
-
-            except Exception as e:
-                print(f"  ✗ Error: {e}")
-
-            print("-"*80)
-
-
-def main():
-    """Main test runner"""
-    tester = TestPlanner()
-
-    # Test with real messages
-    print("\n🧪 Running Planner Tests\n")
-
-    success = tester.test_real_messages(count=50, max_scenarios=10)
-
-    if not success:
-        print("\n⚠️  Real message tests could not run (check database access)")
-        print("Falling back to edge case tests only...\n")
-
-    # Test edge cases
-    tester.test_edge_cases()
-
-    print("\n✓ All tests completed!")
+        print("\n" + "="*80 + "\n")
 
 
 if __name__ == "__main__":
-    main()
+    # Run tests with verbose output
+    unittest.main(verbosity=2)

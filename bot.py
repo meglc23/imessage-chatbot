@@ -145,12 +145,18 @@ def main():
             log_message(f"{context_label}: Pending #{order} → from {sender}: {text}")
             print(f"→ Catch-up ({context_label}) #{order} replying to {sender}: {text}")
 
-        # Use summary-aware response if requested and summary exists
-        if use_summary and conversation_summary:
-            log_message(f"{context_label}: Using summary context for response")
-            print(f"  → Using conversation summary for context")
+        # Smart catch-up strategy
+        total_messages = len(conversation_history)
+
+        # Strategy: Use summary only for long conversations (>20 messages) when available
+        if total_messages > 20 and use_summary and conversation_summary:
+            log_message(f"{context_label}: Using summary for long conversation ({total_messages} messages)")
+            print(f"  → Using summary (conversation has {total_messages} messages)")
             response = ai.generate_response_with_summary(conversation_history, conversation_summary)
         else:
+            # Use full history for short conversations or when summary not available
+            log_message(f"{context_label}: Using full history ({total_messages} messages)")
+            print(f"  → Using full history ({total_messages} messages)")
             response = ai.generate_response(conversation_history)
 
         if not response:
