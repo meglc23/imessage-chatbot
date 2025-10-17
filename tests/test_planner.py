@@ -52,10 +52,12 @@ class TestPlanner(unittest.TestCase):
     def test_simple_question(self):
         """Test 1: Simple question planning"""
         captured_messages = []
+        captured_system = None
 
-        def mock_call_model(messages):
-            nonlocal captured_messages
+        def mock_call_model(messages, system=None):
+            nonlocal captured_messages, captured_system
             captured_messages = messages
+            captured_system = system
             return json.dumps({
                 "should_respond": True,
                 "intent": "answer_question",
@@ -67,13 +69,8 @@ class TestPlanner(unittest.TestCase):
 
         with patch.object(planner_module, '_call_model', side_effect=mock_call_model):
             history = "[mom] 最近怎么样？"
-            new_msg = "最近怎么样？"
 
-            plan = plan_response(
-                history=history,
-                new_msg=new_msg,
-                sender_info="mom"
-            )
+            plan = plan_response(history=history)
 
             print_api_call("TEST 1: Simple Question", captured_messages)
 
@@ -87,10 +84,12 @@ class TestPlanner(unittest.TestCase):
     def test_multi_turn_conversation(self):
         """Test 2: Multi-turn conversation with bot history"""
         captured_messages = []
+        captured_system = None
 
-        def mock_call_model(messages):
-            nonlocal captured_messages
+        def mock_call_model(messages, system=None):
+            nonlocal captured_messages, captured_system
             captured_messages = messages
+            captured_system = system
             return json.dumps({
                 "should_respond": True,
                 "intent": "ask_followup",
@@ -107,14 +106,7 @@ class TestPlanner(unittest.TestCase):
 [mom] 记得多喝水哦
 [me] 好的妈咪"""
 
-            new_msg = "周末有什么计划吗？"
-
-            plan = plan_response(
-                history=history,
-                new_msg=new_msg,
-                sender_info="dad",
-                last_bot_reply="好的妈咪"
-            )
+            plan = plan_response(history=history)
 
             print_api_call("TEST 2: Multi-turn with Bot History", captured_messages)
 
@@ -145,10 +137,12 @@ class TestPlanner(unittest.TestCase):
     def test_merged_user_messages(self):
         """Test 3: Mom and Dad both send messages between bot replies"""
         captured_messages = []
+        captured_system = None
 
-        def mock_call_model(messages):
-            nonlocal captured_messages
+        def mock_call_model(messages, system=None):
+            nonlocal captured_messages, captured_system
             captured_messages = messages
+            captured_system = system
             return json.dumps({
                 "should_respond": True,
                 "intent": "reflect",
@@ -166,14 +160,7 @@ class TestPlanner(unittest.TestCase):
 [dad] 周末有什么计划吗？
 [mom] 要不要回来看看？"""
 
-            new_msg = "周末有什么计划吗？"
-
-            plan = plan_response(
-                history=history,
-                new_msg=new_msg,
-                sender_info="dad",
-                last_bot_reply="还好，项目进展不错"
-            )
+            plan = plan_response(history=history)
 
             print_api_call("TEST 3: Mom & Dad Messages Merged", captured_messages)
 

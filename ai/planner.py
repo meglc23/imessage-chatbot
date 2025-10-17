@@ -4,7 +4,7 @@
 import json
 import os
 import random
-from typing import Dict, Optional
+from typing import Dict
 from anthropic import Anthropic
 from datetime import datetime
 from dotenv import load_dotenv
@@ -30,9 +30,9 @@ DEFAULT_PLAN = {
     "hint": "be brief and friendly"
 }
 
-PLANNING_PROMPT_TEMPLATE = """You are a dialogue planner for a family chatbot.
+PLANNING_SYSTEM_PROMPT = """You are a dialogue planner for a family chatbot. The chatbot is having a conversation with its parents (mom and dad) in a family group chat, and responds as their daughter.
 
-Based on the conversation history above, plan the response strategy for the latest message.
+Based on the conversation history, plan the response strategy for the latest message.
 
 Context:
 {context}
@@ -62,7 +62,7 @@ Set should_respond=false for:
 - Already replied to similar content
 - Simple greetings already acknowledged
 
-Return only JSON:"""
+Return only JSON."""
 
 
 def _get_time_of_day() -> str:
@@ -97,23 +97,30 @@ def _extract_json(text: str) -> str:
     return text.strip()
 
 
-def _call_model(messages: list) -> str:
+def _call_model(messages: list, system: str = None) -> str:
     """
     Call Claude API for planning.
 
     Args:
         messages: List of message dicts with role and content
+        system: Optional system prompt
     """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY not found")
 
     client = Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model=ANTHROPIC_PLANNER_MODEL,
-        max_tokens=200,
-        messages=messages
-    )
+
+    params = {
+        "model": ANTHROPIC_PLANNER_MODEL,
+        "max_tokens": 200,
+        "messages": messages
+    }
+
+    if system:
+        params["system"] = system
+
+    response = client.messages.create(**params)
     return response.content[0].text.strip()
 
 
@@ -141,20 +148,12 @@ def _validate_plan(plan: Dict) -> Dict:
     return plan
 
 
-def plan_response(
-    history: str,
-    new_msg: str,
-    sender_info: Optional[str] = None,
-    last_bot_reply: Optional[str] = None
-) -> Dict:
+def plan_response(history: str) -> Dict:
     """
     Plan response strategy for a new message.
 
     Args:
         history: Recent conversation history in [role] format
-        new_msg: New message to respond to
-        sender_info: "mom", "dad", or "other"
-        last_bot_reply: Last bot reply (to avoid repetition)
 
     Returns:
         Plan dict with should_respond, intent, tone, response_length, topic, hint
@@ -162,27 +161,16 @@ def plan_response(
     # Build context
     context_str = [f"Time: {_get_time_of_day()}"]
 
-    # Build planning instruction (conversation history is in the multi-turn messages above)
-    planning_instruction = PLANNING_PROMPT_TEMPLATE.format(
+    # Build system prompt with context
+    system_prompt = PLANNING_SYSTEM_PROMPT.format(
         context="\n".join(context_str)
     )
 
     # Convert history to multi-turn format using shared utility
     messages = parse_role_format_to_messages(history)
 
-    # Add the planning instruction as the final user message
-    if messages and messages[-1]["role"] == "user":
-        # Append to last user message
-        messages[-1]["content"] += f"\n\n{planning_instruction}"
-    else:
-        # Add as new user message
-        messages.append({
-            "role": "user",
-            "content": planning_instruction
-        })
-
     try:
-        response = _call_model(messages)
+        response = _call_model(messages, system=system_prompt)
         json_str = _extract_json(response)
         plan = json.loads(json_str)
         return _validate_plan(plan)
@@ -216,6 +204,6 @@ if __name__ == "__main__":
     test_history = "妈咪: 今天天气不错\n我: 是的"
     test_msg = "记得多喝水"
 
-    plan = plan_response(test_history, test_msg, sender_info="mom")
+    plan = plan_response(test_history)
     print(f"Plan: {json.dumps(plan, indent=2, ensure_ascii=False)}")
     print(f"Should respond: {should_respond_with_plan(plan)}")
