@@ -17,34 +17,7 @@ sys.path.insert(0, str(project_root))
 
 from ai import planner as planner_module
 from ai.planner import plan_response, should_respond_with_plan
-
-
-def print_api_call(title, messages_sent):
-    """Pretty print planner API call"""
-    print("\n" + "="*80)
-    print(f"  {title}")
-    print("="*80)
-
-    print("\nModel: claude-3-haiku-20240307 (Planner)")
-    print("Max Tokens: 200")
-
-    print("\n" + "-"*80)
-    print("MESSAGES SENT TO PLANNER API:")
-    print("-"*80)
-
-    for i, msg in enumerate(messages_sent, 1):
-        print(f"\nMessage {i}:")
-        print(f"  Role: {msg['role']}")
-        print(f"  Content:")
-        content = msg['content']
-        for line in content.split('\n'):
-            print(f"    {line}")
-
-    print("\n" + "-"*80)
-    print("FULL JSON:")
-    print("-"*80)
-    print(json.dumps(messages_sent, indent=2, ensure_ascii=False))
-    print("="*80 + "\n")
+from tests.test_utils import print_api_call
 
 
 class TestPlanner(unittest.TestCase):
@@ -72,7 +45,13 @@ class TestPlanner(unittest.TestCase):
 
             plan = plan_response(history=history)
 
-            print_api_call("TEST 1: Simple Question", captured_messages)
+            print_api_call(
+                "TEST 1: Simple Question",
+                captured_messages,
+                system_prompt=captured_system,
+                model="claude-3-haiku-20240307",
+                max_tokens=200
+            )
 
             print(f"Plan Result:")
             print(json.dumps(plan, indent=2, ensure_ascii=False))
@@ -108,7 +87,13 @@ class TestPlanner(unittest.TestCase):
 
             plan = plan_response(history=history)
 
-            print_api_call("TEST 2: Multi-turn with Bot History", captured_messages)
+            print_api_call(
+                "TEST 2: Multi-turn with Bot History",
+                captured_messages,
+                system_prompt=captured_system,
+                model="claude-3-haiku-20240307",
+                max_tokens=200
+            )
 
             print(f"Plan Result:")
             print(json.dumps(plan, indent=2, ensure_ascii=False))
@@ -162,7 +147,13 @@ class TestPlanner(unittest.TestCase):
 
             plan = plan_response(history=history)
 
-            print_api_call("TEST 3: Mom & Dad Messages Merged", captured_messages)
+            print_api_call(
+                "TEST 3: Mom & Dad Messages Merged",
+                captured_messages,
+                system_prompt=captured_system,
+                model="claude-3-haiku-20240307",
+                max_tokens=200
+            )
 
             print(f"Plan Result:")
             print(json.dumps(plan, indent=2, ensure_ascii=False))

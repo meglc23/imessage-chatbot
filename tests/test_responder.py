@@ -6,7 +6,6 @@ Shows full API calls, system prompts, and messages
 
 import os
 import sys
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -19,40 +18,7 @@ if PROJECT_ROOT not in sys.path:
 import ai.responder as ai_module
 from ai.responder import AIResponder
 from config.contacts import get_mom_contacts, get_dad_contacts
-
-
-def print_api_call(title, call_kwargs):
-    """Pretty print API call details"""
-    print("\n" + "="*80)
-    print(f"  {title}")
-    print("="*80)
-
-    print("\nModel:", call_kwargs.get("model"))
-    print("Max Tokens:", call_kwargs.get("max_tokens"))
-
-    print("\n" + "-"*80)
-    print("SYSTEM PROMPT:")
-    print("-"*80)
-    system = call_kwargs.get("system", "")
-    print(system)
-
-    print("\n" + "-"*80)
-    print("MESSAGES:")
-    print("-"*80)
-    messages = call_kwargs.get("messages", [])
-    for i, msg in enumerate(messages, 1):
-        print(f"\nMessage {i}:")
-        print(f"  Role: {msg['role']}")
-        print(f"  Content:")
-        content = msg['content']
-        for line in content.split('\n'):
-            print(f"    {line}")
-
-    print("\n" + "-"*80)
-    print("FULL JSON (messages only):")
-    print("-"*80)
-    print(json.dumps(messages, indent=2, ensure_ascii=False))
-    print("="*80 + "\n")
+from tests.test_utils import print_api_call
 
 
 class TestAIResponder(unittest.TestCase):
@@ -85,7 +51,13 @@ class TestAIResponder(unittest.TestCase):
 
         mock_client.messages.create.assert_called_once()
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        print_api_call("TEST 1: Simple Conversation (1 message)", call_kwargs)
+        print_api_call(
+            title="TEST 1: Simple Conversation (1 message)",
+            messages_sent=call_kwargs.get("messages", []),
+            system_prompt=call_kwargs.get("system"),
+            model=call_kwargs.get("model"),
+            max_tokens=call_kwargs.get("max_tokens")
+        )
 
         print(f"Generated Reply: {reply}\n")
         self.assertEqual(reply, "挺好的，最近在做新项目")
@@ -122,7 +94,13 @@ class TestAIResponder(unittest.TestCase):
 
         mock_client.messages.create.assert_called_once()
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        print_api_call("TEST 2: Mom & Dad Messages Merged Between Bot Replies", call_kwargs)
+        print_api_call(
+            title="TEST 2: Mom & Dad Messages Merged Between Bot Replies",
+            messages_sent=call_kwargs.get("messages", []),
+            system_prompt=call_kwargs.get("system"),
+            model=call_kwargs.get("model"),
+            max_tokens=call_kwargs.get("max_tokens")
+        )
 
         # Verify structure
         api_messages = call_kwargs["messages"]
