@@ -9,6 +9,7 @@ from anthropic import Anthropic
 from datetime import datetime
 
 from prompts.system_prompts import SUMMARY_GENERATION_PROMPT_TEMPLATE
+from ai.conversation_utils import format_messages_to_role_string
 
 
 def _debug_log(message: str, log_file: str = "data/logs/bot_log.txt"):
@@ -54,26 +55,6 @@ class ConversationSummarizer:
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
-    def alias_sender(self, sender: str) -> str:
-        """Map raw sender identifiers to display names."""
-        try:
-            from config.contacts import CONTACT_ALIASES
-            if not sender:
-                return sender
-            key = sender.strip().lower()
-
-            # User aliases
-            if key in {"meg", "me", "chen"}:
-                return "我"
-
-            # Contact aliases
-            if key in CONTACT_ALIASES:
-                return CONTACT_ALIASES[key]
-
-            return sender
-        except ImportError:
-            return sender
-
     def generate_summary(self, messages: List[Dict[str, str]], max_tokens: int = 300) -> Optional[str]:
         """
         Generate a summary of recent conversation history.
@@ -88,17 +69,7 @@ class ConversationSummarizer:
         if not messages:
             return None
 
-        # Format messages for summary
-        formatted_messages = []
-        for msg in messages:
-            sender_alias = self.alias_sender(msg['sender'])
-            text = msg.get('text', '')
-            if msg.get('is_reaction', False):
-                formatted_messages.append(f"{sender_alias} {text}")
-            else:
-                formatted_messages.append(f"{sender_alias}: {text}")
-
-        conversation_text = "\n".join(formatted_messages)
+        conversation_text = format_messages_to_role_string(messages)
 
         summary_prompt = SUMMARY_GENERATION_PROMPT_TEMPLATE.format(
             conversation_text=conversation_text

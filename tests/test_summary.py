@@ -6,7 +6,6 @@ Shows full API calls, system prompts, and messages
 
 import os
 import sys
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -19,40 +18,7 @@ if PROJECT_ROOT not in sys.path:
 import ai.responder as ai_module
 from ai.responder import AIResponder
 from config.contacts import get_mom_contacts, get_dad_contacts
-
-
-def print_api_call(title, call_kwargs):
-    """Pretty print API call details"""
-    print("\n" + "="*80)
-    print(f"  {title}")
-    print("="*80)
-
-    print("\nModel:", call_kwargs.get("model"))
-    print("Max Tokens:", call_kwargs.get("max_tokens"))
-
-    print("\n" + "-"*80)
-    print("SYSTEM PROMPT:")
-    print("-"*80)
-    system = call_kwargs.get("system", "")
-    print(system)
-
-    print("\n" + "-"*80)
-    print("MESSAGES:")
-    print("-"*80)
-    messages = call_kwargs.get("messages", [])
-    for i, msg in enumerate(messages, 1):
-        print(f"\nMessage {i}:")
-        print(f"  Role: {msg['role']}")
-        print(f"  Content:")
-        content = msg['content']
-        for line in content.split('\n'):
-            print(f"    {line}")
-
-    print("\n" + "-"*80)
-    print("FULL JSON (messages only):")
-    print("-"*80)
-    print(json.dumps(messages, indent=2, ensure_ascii=False))
-    print("="*80 + "\n")
+from tests.test_utils import print_api_call
 
 
 class TestSummary(unittest.TestCase):
@@ -91,7 +57,13 @@ class TestSummary(unittest.TestCase):
 
         mock_client.messages.create.assert_called_once()
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        print_api_call("TEST 1: Generate Summary (Multi-turn)", call_kwargs)
+        print_api_call(
+            title="TEST 1: Generate Summary (Multi-turn)",
+            messages_sent=call_kwargs.get("messages", []),
+            system_prompt=call_kwargs.get("system"),
+            model=call_kwargs.get("model"),
+            max_tokens=call_kwargs.get("max_tokens")
+        )
 
         print(f"Generated Summary: {summary}\n")
         self.assertEqual(summary, "妈妈问天气，崽说天气不错。爸爸问工作情况，崽说在做新项目。爸爸提议周末视频。")
@@ -121,7 +93,13 @@ class TestSummary(unittest.TestCase):
 
         mock_client.messages.create.assert_called_once()
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        print_api_call("TEST 2: Response with Summary Context", call_kwargs)
+        print_api_call(
+            title="TEST 2: Response with Summary Context",
+            messages_sent=call_kwargs.get("messages", []),
+            system_prompt=call_kwargs.get("system"),
+            model=call_kwargs.get("model"),
+            max_tokens=call_kwargs.get("max_tokens")
+        )
 
         # Verify summary is in the user message content
         messages = call_kwargs.get("messages", [])
@@ -147,17 +125,22 @@ class TestSummary(unittest.TestCase):
 
         summary = "妈妈问天气，崽说天气不错。爸爸问工作情况，崽说在做新项目。"
 
-        topic = responder.generate_startup_topic(audience="family", summary=summary)
+        topic = responder.generate_startup_topic(summary=summary)
 
         mock_client.messages.create.assert_called_once()
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        print_api_call("TEST 3: Fresh Startup Topic with Summary", call_kwargs)
+        print_api_call(
+            title="TEST 3: Fresh Startup Topic with Summary",
+            messages_sent=call_kwargs.get("messages", []),
+            system_prompt=call_kwargs.get("system"),
+            model=call_kwargs.get("model"),
+            max_tokens=call_kwargs.get("max_tokens")
+        )
 
-        # Verify summary is in the user message content
-        messages = call_kwargs.get("messages", [])
-        user_msg = messages[0]["content"] if messages else ""
-        self.assertIn(summary, user_msg)
-        self.assertIn("conversation summary", user_msg.lower())
+        # Verify summary is in the system prompt
+        system_prompt = call_kwargs.get("system", "")
+        self.assertIn(summary, system_prompt)
+        self.assertIn("conversation summary", system_prompt.lower())
 
         print(f"Generated Topic: {topic}\n")
         self.assertEqual(topic, "妈咪，最近有没有发现什么好吃的餐厅？")

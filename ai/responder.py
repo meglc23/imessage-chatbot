@@ -595,7 +595,12 @@ Your response:"""
             return None
 
 
-    def generate_startup_topic(self, recent_messages: Optional[List[Dict]] = None, summary: Optional[str] = None, max_tokens: int = 60) -> Optional[str]:
+    def generate_startup_topic(
+        self,
+        recent_messages: Optional[List[Dict]] = None,
+        summary: Optional[str] = None,
+        max_tokens: int = 60
+    ) -> Optional[str]:
         """
         Generate a fresh conversation starter topic using recent message context.
 
