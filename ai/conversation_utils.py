@@ -12,12 +12,12 @@ def parse_role_format_to_messages(text: str) -> List[Dict[str, str]]:
 
     Expected input format:
         [dad] message text
-        [me] response text
+        [assistant] response text
         [mom] another message
 
     Returns:
         List of {"role": "user"/"assistant", "content": "text"} dicts
-        - [me] → role: "assistant"
+        - [assistant] → role: "assistant"
         - [mom]/[dad]/[other] → role: "user" (consecutive ones merged)
     """
     messages = []
@@ -34,7 +34,7 @@ def parse_role_format_to_messages(text: str) -> List[Dict[str, str]]:
                 role = line[1:close_bracket].strip()
                 content = line[close_bracket + 1:].strip()
 
-                if role == 'me':
+                if role == 'assistant':
                     # Flush pending user messages first
                     if pending_user_messages:
                         messages.append({
@@ -79,7 +79,7 @@ def format_messages_to_role_string(messages: List[Dict[str, str]], bot_name: str
     Returns:
         String in format:
             [mom] message text
-            [me] bot response
+            [assistant] bot response
             [dad] another message
     """
     from config.contacts import get_mom_contacts, get_dad_contacts
@@ -101,7 +101,7 @@ def format_messages_to_role_string(messages: List[Dict[str, str]], bot_name: str
         is_bot = msg.get('is_from_me') or (msg.get('sender') or "").lower() == bot_name.lower()
 
         if is_bot:
-            role = "me"
+            role = "assistant"
         else:
             # Determine relationship
             sender_lower = (msg.get('sender') or "").lower()
