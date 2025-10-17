@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 from imessage_handler import iMessageHandler
 from ai.responder import AIResponder
 from ai.summarizer import ConversationSummarizer
-import random
 from config.contacts import get_mom_contacts, get_dad_contacts
 from loggings import log_message
 
@@ -40,23 +39,6 @@ def main():
 
     log_message(f"=== Bot Started ===")
     log_message(f"Chat: {CHAT_NAME}, Bot Name: {BOT_NAME}, AI Provider: {AI_PROVIDER}")
-
-    # Load optional startup greeting configuration
-    meg_handle = os.getenv("MEG_HANDLE")
-    startup_greeting = os.getenv("STARTUP_GREETING", "Hi, I'm Meg! I'll be taking over the chat now.")
-
-    # Variant startup greetings
-    SELF_STARTUP_VARIANTS = ["我来了", "到啦～", "我在这儿", "到位！"]
-    STARTUP_TOPIC_STARTERS = [
-        "最近想去试试市中心那家新咖啡店，你们最近喝啥好喝的？",
-        "周末我准备练个新菜谱，做味噌三文鱼，改天拍给你们看。",
-        "这段时间在看一本摄影书，学了不少新构图的思路。",
-        "我在找新的健身课，想着换换方式，你们最近运动得怎么样？",
-        "我刚发现一个很有意思的纪录片，周末想追完，你们最近看啥？",
-        "准备把阳台的小植物重新整理一下，你们那边花园怎么样？"
-    ]
-
-    # Note: Knowledge base and system prompts are now loaded automatically by AI modules
 
     # Initialize handlers
     try:
@@ -183,32 +165,20 @@ def main():
         responded = respond_to_pending("Startup", use_summary=True)
 
         if not responded:
-            sender_id = (latest.get('sender') or "").lower()
             print("→ All pending messages handled, considering fresh topic\n")
             log_message("→ Startup: no pending parent messages; considering new topic")
 
-            # If the most recent message came from Meg herself → send only a short "I'm here" variant
-            if meg_handle and latest.get('is_from_me'):
-                variant = random.choice(SELF_STARTUP_VARIANTS)
-                topic_intro = ai.generate_startup_topic("self", conversation_summary) or random.choice(STARTUP_TOPIC_STARTERS)
-                message = f"{variant} {topic_intro}"
-                print("→ Greeting (self detected)")
-                log_message(f"→ Sending self-startup greeting: {message}")
-                if imessage.send_message(message):
-                    print("✓ Startup greeting (self) sent\n")
-                    log_message("✓ Startup greeting (self) sent successfully")
-                    append_history({
-                        'sender': BOT_NAME,
-                        'text': message,
-                        'is_from_me': True
-                    })
-                    ai.last_reply = message
-                else:
-                    print("✗ Failed to send startup greeting (self)\n")
-                    log_message("✗ Failed to send startup greeting (self)")
+            # Generate AI topic starter using recent messages
+            recent_for_topic = conversation_history[-3:] if len(conversation_history) >= 3 else conversation_history
+            topic_intro = ai.generate_startup_topic(
+                recent_messages=recent_for_topic,
+                summary=conversation_summary
+            )
 
+            if not topic_intro:
+                print("✗ Failed to generate startup topic, skipping\n")
+                log_message("✗ Failed to generate startup topic")
             else:
-                topic_intro = ai.generate_startup_topic("family", conversation_summary) or random.choice(STARTUP_TOPIC_STARTERS)
                 print("→ Starting a fresh topic")
                 log_message(f"→ Sending fresh startup topic: {topic_intro}")
                 success = imessage.send_message(topic_intro)

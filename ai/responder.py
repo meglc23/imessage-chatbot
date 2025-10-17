@@ -27,7 +27,7 @@ from prompts.system_prompts import (
 from ai.planner import plan_response, should_respond_with_plan
 
 # Import shared conversation utilities
-from ai.conversation_utils import format_messages_to_role_string
+from ai.conversation_utils import format_messages_to_role_string, parse_role_format_to_messages
 
 # Model configuration
 ANTHROPIC_RESPONSE_MODEL = "claude-3-5-haiku-20241022"
@@ -595,52 +595,54 @@ Your response:"""
             return None
 
 
-    def generate_startup_topic(self, audience: str = "family", summary: Optional[str] = None, max_tokens: int = 60) -> Optional[str]:
+    def generate_startup_topic(self, recent_messages: Optional[List[Dict]] = None, summary: Optional[str] = None, max_tokens: int = 60) -> Optional[str]:
         """
-        Generate a fresh conversation starter topic tailored to the audience.
+        Generate a fresh conversation starter topic using recent message context.
 
         Args:
-            audience: "mom", "dad", "self", or general descriptor
+            recent_messages: Optional list of recent messages (last 3) to provide context
             summary: Optional summary of recent conversation to avoid repeating topics
             max_tokens: Maximum tokens for the generated topic
 
         Returns:
             A short sentence introducing a new topic, or None on failure.
         """
-        audience_map = {
-            "mom": "妈咪",
-            "dad": "爸爸",
-            "self": "爸妈",
-            "family": "爸妈",
-        }
-        audience_label = audience_map.get(audience.lower(), audience if audience else "爸妈")
-
-        # Build prompt with summary context if available
+        # Build system prompt with summary context if available
         summary_context = ""
         if summary:
             summary_context = f"""
 Recent conversation summary:
 {summary}
-
-**Note**: Avoid repeating topics already discussed in the summary. Start a completely new, different topic.
 """
 
-        startup_prompt = STARTUP_TOPIC_PROMPT_TEMPLATE.format(
-            audience_label=audience_label,
+        startup_system_prompt = STARTUP_TOPIC_PROMPT_TEMPLATE.format(
             summary_context=summary_context,
             knowledge_base=self.knowledge_base
         )
+
+        # Build messages array with recent context
+        messages = []
+
+        # Add recent messages as context (if provided)
+        if recent_messages:
+            # Convert recent messages to multi-turn format
+            conversation_context = format_messages_to_role_string(recent_messages[-3:])
+            messages = parse_role_format_to_messages(conversation_context)
+
+        # If no messages or last is assistant, add a user prompt
+        if not messages or messages[-1]["role"] == "assistant":
+            messages.append({
+                "role": "user",
+                "content": "Hi, what's up?"
+            })
 
         try:
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=max_tokens,
-                    system=self.system_prompt,
-                    messages=[{
-                        "role": "user",
-                        "content": startup_prompt
-                    }]
+                    system=startup_system_prompt,
+                    messages=messages
                 )
                 topic = response.content[0].text.strip()
             elif self.provider == "openai":
@@ -648,9 +650,8 @@ Recent conversation summary:
                     model=self.model,
                     max_tokens=max_tokens,
                     messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": startup_prompt}
-                    ]
+                        {"role": "system", "content": startup_system_prompt}
+                    ] + messages
                 )
                 topic = response.choices[0].message.content.strip()
             else:
@@ -660,35 +661,6 @@ Recent conversation summary:
         except Exception as e:
             print(f"✗ Error generating startup topic: {e}")
             return None
-
-    def should_respond_to_message(self, message: Dict[str, str], bot_name: str) -> bool:
-        """
-        Determine if the bot should respond to a specific message.
-
-        Args:
-            message: Message dictionary
-            bot_name: Name of the bot in the chat
-
-        Returns:
-            True if bot should consider responding
-        """
-        text = message['text'].lower()
-        sender = message['sender']
-
-        # Don't respond to own messages
-        if sender == bot_name:
-            return False
-
-        # Always respond if directly mentioned
-        if bot_name.lower() in text or '@ai' in text or 'hey bot' in text:
-            return True
-
-        # Respond to questions
-        if '?' in text:
-            return True
-
-        # Otherwise, let the AI decide based on context
-        return True
 
 
 if __name__ == "__main__":
