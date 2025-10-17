@@ -10,7 +10,7 @@ Keeps family chats moving by watching threads, remembering context, and replying
 
 - 🧠 **Smart Planning** - Plans response strategy (intent, tone, length) before replying
 - 💬 **Natural Responses** - Uses your knowledge base and communication style
-- ❤️ **Reaction Aware** - Recognizes iMessage reactions (❤️, 👍, 😂)
+- 🧾 **Conversation History** - Keeps the latest 40 messages for continuity
 - 📊 **Smart Startup** - Summarizes conversation and addresses unanswered questions
 - 🔒 **Privacy First** - All sensitive data gitignored
 
@@ -25,7 +25,7 @@ pip install -r requirements.txt
 - Add an `.env` with `CHAT_NAME`, `BOT_NAME`, `ANTHROPIC_API_KEY`.
 - Create `config/contacts.py` and `config/knowledge_base.py` (gitignored) with aliases plus personal context.
 - macOS → System Settings → Privacy & Security → Full Disk Access → add Terminal.
-- Launch with `python bot.py`.
+- Launch with `python bot.py` (use `caffeinate -dims` beforehand if you need the Mac awake overnight).
 
 ## Project Structure
 
@@ -33,16 +33,18 @@ pip install -r requirements.txt
 ├── bot.py                    # Main script
 ├── imessage_handler.py       # AppleScript bridge
 ├── ai/
-│   ├── planner.py           # Response planning
-│   ├── responder.py         # Response generation
-│   └── summarizer.py        # Conversation summarization
+│   ├── planner.py            # Response planning
+│   ├── responder.py          # Response generation
+│   └── summarizer.py         # Conversation summarization
 ├── config/                   # Contacts & knowledge (gitignored)
 ├── prompts/                  # Prompt templates
 ├── scripts/                  # Data extraction tools
 ├── tests/                    # Test suite
 ├── utils/                    # Shared utilities
 ├── training/                 # Fine-tuning data tooling & datasets
-└── data/exports/            # Exported data (gitignored)
+└── data/
+    ├── exports/              # Exported data (gitignored)
+    └── logs/                 # Archived bot logs (active log: data/logs/bot_log.txt)
 ```
 
 ## Training Data
