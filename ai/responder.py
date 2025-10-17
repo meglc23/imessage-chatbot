@@ -44,11 +44,11 @@ def _debug_log(message: str, log_file: str = None):
     # Use date-based log file if not specified
     if log_file is None:
         date_str = datetime.now().strftime("%Y-%m-%d")
-        log_file = f"logs/bot_log_{date_str}.txt"
+        log_file = f"data/logs/bot_log_{date_str}.txt"
 
     try:
         # Ensure logs directory exists
-        os.makedirs("logs", exist_ok=True)
+        os.makedirs("data/logs", exist_ok=True)
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}]   DEBUG: {message}\n")
     except Exception:
@@ -329,12 +329,7 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 
         # Use planner to determine response strategy
         _debug_log(f"generate_response: Calling planner with sender_info={relationship_hint}")
-        plan = plan_response(
-            history=conversation_history,
-            new_msg=latest_parent_text,
-            sender_info=relationship_hint,
-            last_bot_reply=last_bot_reply
-        )
+        plan = plan_response(history=conversation_history)
         _debug_log(f"generate_response: Planner result -> intent={plan.get('intent')}, tone={plan.get('tone')}, length={plan.get('response_length')}, should_respond={plan.get('should_respond')}")
         _debug_log(f"generate_response: Planner hint -> {plan.get('hint')}")
         
@@ -523,12 +518,7 @@ PLANNING CONTEXT:
         last_bot_reply = self._get_last_bot_reply(recent_messages)
 
         # Use planner to determine response strategy
-        plan = plan_response(
-            history=conversation_history,
-            new_msg=latest_parent_text,
-            sender_info=relationship_hint,
-            last_bot_reply=last_bot_reply
-        )
+        plan = plan_response(history=conversation_history)
         _debug_log(f"Summary-aware planner result: {plan}")
 
         # Check if we should respond based on the plan

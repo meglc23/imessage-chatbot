@@ -34,8 +34,8 @@ env/
 .DS_Store
 
 # Logs and databases
-logs/bot_log.txt
-logs/*.txt
+data/logs/bot_log.txt
+data/logs/*.txt
 *.log
 *.db
 *.sqlite

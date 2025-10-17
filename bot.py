@@ -13,12 +13,7 @@ from ai.responder import AIResponder
 from ai.summarizer import ConversationSummarizer
 import random
 from config.contacts import get_mom_contacts, get_dad_contacts
-
-def log_message(message, log_file="logs/bot_log.txt"):
-    """Log messages to a file with timestamp"""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(f"[{timestamp}] {message}\n")
+from loggings import log_message
 
 def main():
     # Load environment variables
@@ -40,7 +35,7 @@ def main():
     print(f"Bot Name: {BOT_NAME}")
     print(f"AI Provider: {AI_PROVIDER}")
     print(f"Check Interval: {CHECK_INTERVAL} seconds")
-    print(f"Logging to: logs/bot_log.txt")
+    print(f"Logging to: data/logs/bot_log.txt")
     print("-" * 50)
 
     log_message(f"=== Bot Started ===")

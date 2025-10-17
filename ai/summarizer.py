@@ -11,7 +11,7 @@ from datetime import datetime
 from prompts.system_prompts import SUMMARY_GENERATION_PROMPT_TEMPLATE
 
 
-def _debug_log(message: str, log_file: str = "logs/bot_log.txt"):
+def _debug_log(message: str, log_file: str = "data/logs/bot_log.txt"):
     """Append debug information to the shared bot log."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
