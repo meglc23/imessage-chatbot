@@ -27,11 +27,20 @@ from prompts.system_prompts import (
 from ai.planner import plan_response, should_respond_with_plan
 
 # Import shared conversation utilities
-from ai.conversation_utils import format_messages_to_role_string, parse_role_format_to_messages
+from ai.conversation_utils import (
+    format_messages_to_role_string,
+    parse_role_format_to_messages,
+    get_time_context
+)
 
-# Model configuration
-ANTHROPIC_RESPONSE_MODEL = "claude-3-5-haiku-20241022"
-OPENAI_RESPONSE_MODEL = "gpt-4"
+# Import constants
+from config.constants import (
+    ANTHROPIC_RESPONSE_MODEL,
+    OPENAI_RESPONSE_MODEL,
+    DEFAULT_CONTEXT_WINDOW,
+    MAX_RESPONSE_TOKENS,
+    MAX_STARTUP_TOPIC_TOKENS
+)
 
 # Directly load the knowledge base from file
 with open("config/knowledge_base.py", "r", encoding="utf-8") as f:
@@ -73,8 +82,8 @@ class AIResponder:
         self.provider = provider.lower()
         self.knowledge_base = MEG_KNOWLEDGE
 
-        # Build system prompt with knowledge base at runtime
-        self.system_prompt = f"""{SYSTEM_PROMPT}
+        # Build base system prompt template (time will be injected dynamically)
+        self.system_prompt_template = f"""{SYSTEM_PROMPT}
 
 IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 {MEG_KNOWLEDGE}
@@ -84,6 +93,7 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 
         self.bot_name = os.getenv("BOT_NAME", "Meg")
         self.last_reply: Optional[str] = None
+        self.context_window = int(os.getenv("CONTEXT_WINDOW", str(DEFAULT_CONTEXT_WINDOW)))
 
         if self.provider == "anthropic":
             self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
@@ -259,7 +269,7 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
     def generate_response(
         self,
         messages: List[Dict[str, str]],
-        max_tokens: int = 100
+        max_tokens: int = MAX_RESPONSE_TOKENS
     ) -> Optional[str]:
         """
         Generate a response based on the conversation history.
@@ -284,7 +294,7 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         _debug_log(f"generate_response: Processing {len(ordered_messages)} messages")
 
         # Format conversation history using the latest messages
-        recent_messages = ordered_messages[-10:]
+        recent_messages = ordered_messages[-self.context_window:]
         latest_message = ordered_messages[-1]
         latest_parent_text = latest_message['text']
 
@@ -307,8 +317,8 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
             recent_messages.append(placeholder)
             ordered_messages.append(placeholder)
             _debug_log("Appended cached bot reply to history because DB snapshot lacked it.")
-            if len(recent_messages) > 10:
-                recent_messages = recent_messages[-10:]
+            if len(recent_messages) > self.context_window:
+                recent_messages = recent_messages[-self.context_window:]
 
         # Get last bot reply using helper
         last_bot_reply = self._get_last_bot_reply(recent_messages)
@@ -374,11 +384,15 @@ PLANNING CONTEXT:
             _debug_log(f"generate_response: Calling {self.provider} API with model={self.model}, max_tokens={max_tokens}")
             _debug_log(f"generate_response: Using {len(conversation_messages)} multi-turn messages")
 
+            # Inject time context into system prompt
+            time_context = get_time_context()
+            system_prompt = self.system_prompt_template.format(time_context=time_context)
+
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=max_tokens,
-                    system=self.system_prompt,
+                    system=system_prompt,
                     messages=conversation_messages
                 )
                 reply = response.content[0].text.strip()
@@ -386,7 +400,7 @@ PLANNING CONTEXT:
 
             elif self.provider == "openai":
                 # OpenAI uses different format - combine system with messages
-                openai_messages = [{"role": "system", "content": self.system_prompt}] + conversation_messages
+                openai_messages = [{"role": "system", "content": system_prompt}] + conversation_messages
                 response = self.client.chat.completions.create(
                     model=self.model,
                     max_tokens=max_tokens,
@@ -599,7 +613,7 @@ Your response:"""
         self,
         recent_messages: Optional[List[Dict]] = None,
         summary: Optional[str] = None,
-        max_tokens: int = 60
+        max_tokens: int = MAX_STARTUP_TOPIC_TOKENS
     ) -> Optional[str]:
         """
         Generate a fresh conversation starter topic using recent message context.
@@ -612,7 +626,9 @@ Your response:"""
         Returns:
             A short sentence introducing a new topic, or None on failure.
         """
-        # Build system prompt with summary context if available
+        # Build system prompt with time and summary context
+        time_context = get_time_context()
+
         summary_context = ""
         if summary:
             summary_context = f"""
@@ -621,6 +637,7 @@ Recent conversation summary:
 """
 
         startup_system_prompt = STARTUP_TOPIC_PROMPT_TEMPLATE.format(
+            time_context=time_context,
             summary_context=summary_context,
             knowledge_base=self.knowledge_base
         )

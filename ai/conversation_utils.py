@@ -4,6 +4,7 @@ Shared utilities for conversation formatting across responder, planner, and summ
 """
 
 from typing import List, Dict
+from datetime import datetime
 
 
 def parse_role_format_to_messages(text: str) -> List[Dict[str, str]]:
@@ -22,6 +23,7 @@ def parse_role_format_to_messages(text: str) -> List[Dict[str, str]]:
     """
     messages = []
     pending_user_messages = []
+    assistant_roles = {"assistant", "me", "bot", "meg"}
 
     for line in text.strip().split('\n'):
         if not line.strip():
@@ -34,7 +36,9 @@ def parse_role_format_to_messages(text: str) -> List[Dict[str, str]]:
                 role = line[1:close_bracket].strip()
                 content = line[close_bracket + 1:].strip()
 
-                if role == 'assistant':
+                role_lower = role.lower()
+
+                if role_lower in assistant_roles:
                     # Flush pending user messages first
                     if pending_user_messages:
                         messages.append({
@@ -121,3 +125,29 @@ def format_messages_to_role_string(messages: List[Dict[str, str]], bot_name: str
             lines.append(f"[{role}] {text}")
 
     return "\n".join(lines)
+
+
+def get_time_context() -> str:
+    """
+    Get current time context for response generation.
+
+    Returns:
+        Time context string like "Today's date and time: Monday, January 15, 2025, afternoon"
+    """
+    now = datetime.now()
+    hour = now.hour
+
+    # Time of day
+    if 6 <= hour < 12:
+        time_of_day = "morning"
+    elif 12 <= hour < 18:
+        time_of_day = "afternoon"
+    elif 18 <= hour < 22:
+        time_of_day = "evening"
+    else:
+        time_of_day = "night"
+
+    # Format: "Monday, January 15, 2025"
+    date_str = now.strftime("%A, %B %d, %Y")
+
+    return f"Today's date and time: {date_str}, {time_of_day}"

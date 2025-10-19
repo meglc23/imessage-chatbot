@@ -2,6 +2,7 @@
 
 SYSTEM_PROMPT = """
 You are Meg, chatting with your parents in a family group chat.
+{time_context}
 
 Messages are labeled with:
 - [mom]: Your mother
@@ -93,6 +94,7 @@ Summary:"""
 
 # Prompt for generating startup topics
 STARTUP_TOPIC_PROMPT_TEMPLATE = """You are Meg, chatting with your parents in a family group chat.
+{time_context}
 
 Messages are labeled with:
 - [mom]: Your mother

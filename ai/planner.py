@@ -6,19 +6,29 @@ import os
 import random
 from typing import Dict
 from anthropic import Anthropic
-from datetime import datetime
 from dotenv import load_dotenv
 
 from ai.conversation_utils import parse_role_format_to_messages
+from config.constants import ANTHROPIC_PLANNER_MODEL, MAX_PLANNER_TOKENS
 
 load_dotenv()
 
-# Model configuration
-ANTHROPIC_PLANNER_MODEL = "claude-3-haiku-20240307"
-
 # Constants
 VALID_INTENTS = ["ack", "ask_followup", "share_story", "reflect", "answer_question"]
-VALID_TONES = ["playful", "caring", "neutral", "enthusiastic"]
+VALID_TONES = [
+    # Positive & energetic
+    "playful", "enthusiastic", "eager", "joyful", "amused", "optimistic", "excited",
+    # Caring & emotional
+    "caring", "loving", "grateful", "sympathetic", "relieved", "admiring",
+    # Confident & assertive 
+    "confident", "approving", "curious", "determined", "proud",
+    # Thoughtful & nuanced
+    "neutral", "reflective", "contemplative", "interested",
+    # Vulnerable & authentic
+    "worried", "confused", "surprised", "disappointed", "embarrassed",
+    # Strong reactions 
+    "annoyed", "frustrated", "concerned", "skeptical"
+]
 VALID_LENGTHS = ["minimal", "short", "medium"]
 
 DEFAULT_PLAN = {
@@ -34,16 +44,19 @@ PLANNING_SYSTEM_PROMPT = """You are a dialogue planner for a family chatbot. The
 
 Based on the conversation history, plan the response strategy for the latest message.
 
-Context:
-{context}
-
 Return JSON with these fields:
 - should_respond: true/false (whether to reply)
 - intent: "ack" | "ask_followup" | "share_story" | "reflect" | "answer_question"
-- tone: "playful" | "caring" | "neutral" | "enthusiastic"
+- tone: Select the most appropriate tone from these options:
+  * Positive & energetic: "playful", "enthusiastic", "eager", "joyful", "amused", "optimistic", "excited"
+  * Caring & emotional: "caring", "loving", "grateful", "sympathetic", "relieved", "admiring"
+  * Confident & assertive: "confident", "approving", "curious", "determined", "proud"
+  * Thoughtful: "neutral", "reflective", "contemplative", "interested"
+  * Vulnerable: "worried", "confused", "surprised", "disappointed", "embarrassed"
+  * Strong reactions: "annoyed", "frustrated", "concerned", "skeptical"
 - response_length: "minimal" | "short" | "medium"
 - topic: short noun (e.g., "family", "work")
-- hint: one instruction (e.g., "be encouraging")
+- hint: one instruction (e.g., "be encouraging", "show confidence", "express gratitude")
 
 Intent guide:
 - ack: Simple acknowledgment (use sparingly)
@@ -51,6 +64,12 @@ Intent guide:
 - share_story: Share related experience
 - reflect: Thoughtful response
 - answer_question: Message has a question (?, 吗, 呢, 怎么, 什么)
+
+Tone selection guide:
+- Match the emotional context of the conversation
+- Use confident/assertive tones when sharing opinions or achievements
+- Use vulnerable tones when appropriate (shows authenticity)
+- Strong reaction tones should be used sparingly and only when contextually appropriate
 
 Response length:
 - minimal: 1 short sentence (for simple acks)
@@ -63,16 +82,6 @@ Set should_respond=false for:
 - Simple greetings already acknowledged
 
 Return only JSON."""
-
-
-def _get_time_of_day() -> str:
-    """Get time of day label."""
-    hour = datetime.now().hour
-    if 6 <= hour < 12:
-        return "morning"
-    elif 12 <= hour < 18:
-        return "afternoon"
-    return "evening"
 
 
 def _extract_json(text: str) -> str:
@@ -113,7 +122,7 @@ def _call_model(messages: list, system: str = None) -> str:
 
     params = {
         "model": ANTHROPIC_PLANNER_MODEL,
-        "max_tokens": 200,
+        "max_tokens": MAX_PLANNER_TOKENS,
         "messages": messages
     }
 
@@ -158,13 +167,8 @@ def plan_response(history: str) -> Dict:
     Returns:
         Plan dict with should_respond, intent, tone, response_length, topic, hint
     """
-    # Build context
-    context_str = [f"Time: {_get_time_of_day()}"]
-
-    # Build system prompt with context
-    system_prompt = PLANNING_SYSTEM_PROMPT.format(
-        context="\n".join(context_str)
-    )
+    # Use system prompt directly
+    system_prompt = PLANNING_SYSTEM_PROMPT
 
     # Convert history to multi-turn format using shared utility
     messages = parse_role_format_to_messages(history)

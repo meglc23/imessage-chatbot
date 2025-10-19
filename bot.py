@@ -12,6 +12,12 @@ from imessage_handler import iMessageHandler
 from ai.responder import AIResponder
 from ai.summarizer import ConversationSummarizer
 from config.contacts import get_mom_contacts, get_dad_contacts
+from config.constants import (
+    DEFAULT_CHECK_INTERVAL,
+    DEFAULT_MAX_HISTORY_SIZE,
+    DEFAULT_CONTEXT_WINDOW,
+    SUMMARY_THRESHOLD
+)
 from loggings import log_message
 
 def main():
@@ -22,7 +28,9 @@ def main():
     CHAT_NAME = os.getenv("CHAT_NAME")
     BOT_NAME = os.getenv("BOT_NAME", "AI Assistant")
     AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")
-    CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "20"))  # seconds
+    CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", str(DEFAULT_CHECK_INTERVAL)))
+    MAX_HISTORY_SIZE = int(os.getenv("MAX_HISTORY_SIZE", str(DEFAULT_MAX_HISTORY_SIZE)))
+    CONTEXT_WINDOW = int(os.getenv("CONTEXT_WINDOW", str(DEFAULT_CONTEXT_WINDOW)))
 
     if not CHAT_NAME:
         print("Error: CHAT_NAME not set in .env file")
@@ -71,19 +79,19 @@ def main():
         if entry_copy.get('is_from_me') or (entry_copy.get('sender') or "").lower() == BOT_NAME.lower():
             entry_copy['is_from_me'] = True
         conversation_history.append(entry_copy)
-        if len(conversation_history) > 40:
-            conversation_history = conversation_history[-40:]
+        if len(conversation_history) > MAX_HISTORY_SIZE:
+            conversation_history = conversation_history[-MAX_HISTORY_SIZE:]
         return entry_copy
 
-    messages = imessage.get_recent_messages(count=30)
+    messages = imessage.get_recent_messages(count=MAX_HISTORY_SIZE)
     log_message(f"Startup: Retrieved {len(messages)} messages for bootstrap")
     print(f"Bootstrap pulled {len(messages)} messages")
 
-    # Generate summary of recent conversation
+    # Generate summary of recent conversation (only if enough messages)
     conversation_summary = None
-    if messages:
-        print("\n📋 Generating conversation summary...")
-        log_message("Startup: Generating conversation summary")
+    if len(messages) >= SUMMARY_THRESHOLD:
+        print(f"\n📋 Generating conversation summary ({len(messages)} messages)...")
+        log_message(f"Startup: Generating conversation summary ({len(messages)} messages)")
         conversation_summary = summarizer.generate_summary(messages)
         if conversation_summary:
             print(f"\n{'='*60}")
@@ -95,6 +103,9 @@ def main():
         else:
             print("⚠️  Could not generate summary\n")
             log_message("Startup: Failed to generate summary")
+    else:
+        print(f"→ Skipping summary generation ({len(messages)} messages < {SUMMARY_THRESHOLD} threshold)\n")
+        log_message(f"Startup: Skipping summary ({len(messages)} < {SUMMARY_THRESHOLD})")
 
     for msg in messages:
         appended = append_history(msg)
@@ -122,18 +133,17 @@ def main():
             log_message(f"{context_label}: Pending #{order} → from {sender}: {text}")
             print(f"→ Catch-up ({context_label}) #{order} replying to {sender}: {text}")
 
-        # Smart catch-up strategy
+        # Smart catch-up strategy: use summary if available
         total_messages = len(conversation_history)
 
-        # Strategy: Use summary only for long conversations (>20 messages) when available
-        if total_messages > 20 and use_summary and conversation_summary:
-            log_message(f"{context_label}: Using summary for long conversation ({total_messages} messages)")
-            print(f"  → Using summary (conversation has {total_messages} messages)")
+        if use_summary and conversation_summary:
+            log_message(f"{context_label}: Using summary-enhanced response ({total_messages} messages)")
+            print(f"  → Using summary-enhanced response ({total_messages} messages)")
             response = ai.generate_response_with_summary(conversation_history, conversation_summary)
         else:
-            # Use full history for short conversations or when summary not available
-            log_message(f"{context_label}: Using full history ({total_messages} messages)")
-            print(f"  → Using full history ({total_messages} messages)")
+            # Use standard response without summary
+            log_message(f"{context_label}: Using standard response ({total_messages} messages)")
+            print(f"  → Using standard response ({total_messages} messages)")
             response = ai.generate_response(conversation_history)
 
         if not response:

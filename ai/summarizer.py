@@ -10,6 +10,11 @@ from datetime import datetime
 
 from prompts.system_prompts import SUMMARY_GENERATION_PROMPT_TEMPLATE
 from ai.conversation_utils import format_messages_to_role_string
+from config.constants import (
+    ANTHROPIC_SUMMARIZER_MODEL,
+    OPENAI_SUMMARIZER_MODEL,
+    MAX_SUMMARY_TOKENS
+)
 
 
 def _debug_log(message: str, log_file: str = "data/logs/bot_log.txt"):
@@ -38,7 +43,7 @@ class ConversationSummarizer:
             if not self.api_key:
                 raise ValueError("ANTHROPIC_API_KEY not found in environment")
             self.client = Anthropic(api_key=self.api_key)
-            self.model = "claude-3-haiku-20240307"
+            self.model = ANTHROPIC_SUMMARIZER_MODEL
 
         elif self.provider == "openai":
             try:
@@ -50,12 +55,12 @@ class ConversationSummarizer:
             if not self.api_key:
                 raise ValueError("OPENAI_API_KEY not found in environment")
             self.client = openai.OpenAI(api_key=self.api_key)
-            self.model = "gpt-4"
+            self.model = OPENAI_SUMMARIZER_MODEL
 
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
-    def generate_summary(self, messages: List[Dict[str, str]], max_tokens: int = 300) -> Optional[str]:
+    def generate_summary(self, messages: List[Dict[str, str]], max_tokens: int = MAX_SUMMARY_TOKENS) -> Optional[str]:
         """
         Generate a summary of recent conversation history.
 
