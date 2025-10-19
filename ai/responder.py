@@ -263,8 +263,8 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         return api_messages
 
     def set_system_prompt(self, prompt: str):
-        """Set a custom system prompt."""
-        self.system_prompt = prompt
+        """Set a custom system prompt template."""
+        self.system_prompt_template = prompt
 
     def generate_response(
         self,
@@ -461,11 +461,15 @@ PLANNING CONTEXT:
         prompt = SUMMARY_GENERATION_PROMPT_TEMPLATE.format(conversation_text=conversation_text)
 
         try:
+            # Inject time context into system prompt
+            time_context = get_time_context()
+            system_prompt = self.system_prompt_template.format(time_context=time_context)
+
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=max_tokens,
-                    system=self.system_prompt,
+                    system=system_prompt,
                     messages=[{"role": "user", "content": prompt}]
                 )
                 summary = response.content[0].text.strip()
@@ -474,7 +478,7 @@ PLANNING CONTEXT:
                     model=self.model,
                     max_tokens=max_tokens,
                     messages=[
-                        {"role": "system", "content": self.system_prompt},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt}
                     ]
                 )
@@ -576,16 +580,20 @@ Your response:"""
         try:
             _debug_log(f"Summary-aware: Using {len(conversation_messages)} multi-turn messages")
 
+            # Inject time context into system prompt
+            time_context = get_time_context()
+            system_prompt = self.system_prompt_template.format(time_context=time_context)
+
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=max_tokens,
-                    system=self.system_prompt,
+                    system=system_prompt,
                     messages=conversation_messages
                 )
                 reply = response.content[0].text.strip()
             elif self.provider == "openai":
-                openai_messages = [{"role": "system", "content": self.system_prompt}] + conversation_messages
+                openai_messages = [{"role": "system", "content": system_prompt}] + conversation_messages
                 response = self.client.chat.completions.create(
                     model=self.model,
                     max_tokens=max_tokens,
