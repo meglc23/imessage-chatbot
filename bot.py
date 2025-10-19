@@ -18,7 +18,7 @@ from config.constants import (
     DEFAULT_CONTEXT_WINDOW,
     SUMMARY_THRESHOLD
 )
-from loggings import log_message
+from loggings import log_info, log_warning, log_error, log_debug
 
 def main():
     # Load environment variables
@@ -42,11 +42,13 @@ def main():
     print(f"Bot Name: {BOT_NAME}")
     print(f"AI Provider: {AI_PROVIDER}")
     print(f"Check Interval: {CHECK_INTERVAL} seconds")
-    print(f"Logging to: data/logs/bot_log.txt")
+    current_log_file = datetime.now().strftime("data/logs/bot_log_%Y-%m-%d.txt")
+    print(f"Logging to: {current_log_file}")
     print("-" * 50)
 
-    log_message(f"=== Bot Started ===")
-    log_message(f"Chat: {CHAT_NAME}, Bot Name: {BOT_NAME}, AI Provider: {AI_PROVIDER}")
+    log_info("=== Bot Started ===")
+    log_info(f"Chat: {CHAT_NAME}, Bot Name: {BOT_NAME}, AI Provider: {AI_PROVIDER}")
+    log_info(f"Logging to file: {current_log_file}")
 
     # Initialize handlers
     try:
@@ -61,7 +63,7 @@ def main():
 
     # On startup: reply to the latest message in the chat
     print("Checking for latest message to reply to...")
-    log_message("Startup: Checking for latest message")
+    log_info("Startup: Checking for latest message")
 
     conversation_history: List[Dict[str, str]] = []
     fake_id_counter = 0
@@ -84,14 +86,14 @@ def main():
         return entry_copy
 
     messages = imessage.get_recent_messages(count=MAX_HISTORY_SIZE)
-    log_message(f"Startup: Retrieved {len(messages)} messages for bootstrap")
+    log_info(f"Startup: Retrieved {len(messages)} messages for bootstrap")
     print(f"Bootstrap pulled {len(messages)} messages")
 
     # Generate summary of recent conversation (only if enough messages)
     conversation_summary = None
     if len(messages) >= SUMMARY_THRESHOLD:
         print(f"\n📋 Generating conversation summary ({len(messages)} messages)...")
-        log_message(f"Startup: Generating conversation summary ({len(messages)} messages)")
+        log_info(f"Startup: Generating conversation summary ({len(messages)} messages)")
         conversation_summary = summarizer.generate_summary(messages)
         if conversation_summary:
             print(f"\n{'='*60}")
@@ -99,17 +101,17 @@ def main():
             print(f"{'='*60}")
             print(conversation_summary)
             print(f"{'='*60}\n")
-            log_message(f"Startup: Summary generated -> {conversation_summary}")
+            log_info(f"Startup: Summary generated (chars={len(conversation_summary)})")
         else:
             print("⚠️  Could not generate summary\n")
-            log_message("Startup: Failed to generate summary")
+            log_warning("Startup: Failed to generate summary")
     else:
         print(f"→ Skipping summary generation ({len(messages)} messages < {SUMMARY_THRESHOLD} threshold)\n")
-        log_message(f"Startup: Skipping summary ({len(messages)} < {SUMMARY_THRESHOLD})")
+        log_info(f"Startup: Skipping summary ({len(messages)} < {SUMMARY_THRESHOLD})")
 
     for msg in messages:
         appended = append_history(msg)
-        log_message(f"Startup: History appended -> {appended.get('sender')}: {appended.get('text')}")
+        log_debug(f"Startup: History appended -> {appended.get('sender')}: {appended.get('text')}")
 
     def respond_to_pending(context_label: str = "Startup", use_summary: bool = False) -> bool:
         nonlocal conversation_history, conversation_summary
@@ -126,33 +128,34 @@ def main():
         if not pending:
             return False
 
-        log_message(f"{context_label}: Found {len(pending)} pending parent message(s) (replying in one message)")
+        log_info(f"{context_label}: Found {len(pending)} pending parent message(s) (replying in one message)")
         for order, pending_msg in enumerate(pending, start=1):
             sender = pending_msg.get('sender', 'Unknown')
             text = pending_msg.get('text', '')
-            log_message(f"{context_label}: Pending #{order} → from {sender}: {text}")
+            log_debug(f"{context_label}: Pending #{order} from {sender}: {text}")
             print(f"→ Catch-up ({context_label}) #{order} replying to {sender}: {text}")
 
         # Smart catch-up strategy: use summary if available
         total_messages = len(conversation_history)
 
         if use_summary and conversation_summary:
-            log_message(f"{context_label}: Using summary-enhanced response ({total_messages} messages)")
+            log_info(f"{context_label}: Using summary-enhanced response ({total_messages} messages)")
             print(f"  → Using summary-enhanced response ({total_messages} messages)")
             response = ai.generate_response_with_summary(conversation_history, conversation_summary)
         else:
             # Use standard response without summary
-            log_message(f"{context_label}: Using standard response ({total_messages} messages)")
+            log_info(f"{context_label}: Using standard response ({total_messages} messages)")
             print(f"  → Using standard response ({total_messages} messages)")
             response = ai.generate_response(conversation_history)
 
         if not response:
-            log_message(f"{context_label}: AI chose not to respond to pending batch")
+            log_debug(f"{context_label}: AI chose not to respond to pending batch")
             print("  → AI skipped pending batch")
             return False
 
         if imessage.send_message(response):
-            log_message(f"{context_label}: Reply sent covering pending messages: {response}")
+            preview = response if len(response) <= 160 else response[:160] + "..."
+            log_info(f"{context_label}: Reply sent covering pending messages: {preview}")
             print(f"  → Sent catch-up reply covering {len(pending)} messages: {response}")
             append_history({
                 'sender': BOT_NAME,
@@ -162,21 +165,21 @@ def main():
             ai.last_reply = response
             return True
 
-        log_message(f"{context_label}: ERROR sending batch reply")
+        log_error(f"{context_label}: ERROR sending batch reply")
         print("  → ERROR sending catch-up batch reply")
         return False
 
     if conversation_history:
         latest = conversation_history[-1]
         print(f"Latest message from {latest['sender']}: {latest['text'][:50]}...")
-        log_message(f"Latest message: {latest['sender']}: {latest['text'][:80]}")
+        log_info(f"Latest message: {latest['sender']}: {latest['text'][:80]}")
 
         # Try to respond to pending messages using summary context
         responded = respond_to_pending("Startup", use_summary=True)
 
         if not responded:
             print("→ All pending messages handled, considering fresh topic\n")
-            log_message("→ Startup: no pending parent messages; considering new topic")
+            log_info("Startup: No pending parent messages; considering new topic")
 
             # Generate AI topic starter using recent messages
             recent_for_topic = conversation_history[-3:] if len(conversation_history) >= 3 else conversation_history
@@ -187,14 +190,15 @@ def main():
 
             if not topic_intro:
                 print("✗ Failed to generate startup topic, skipping\n")
-                log_message("✗ Failed to generate startup topic")
+                log_warning("Startup: Failed to generate startup topic")
             else:
                 print("→ Starting a fresh topic")
-                log_message(f"→ Sending fresh startup topic: {topic_intro}")
+                topic_preview = topic_intro if len(topic_intro) <= 160 else topic_intro[:160] + "..."
+                log_info(f"Startup: Sending fresh topic: {topic_preview}")
                 success = imessage.send_message(topic_intro)
                 if success:
                     print("✓ Fresh topic sent successfully\n")
-                    log_message("✓ Fresh topic sent successfully")
+                    log_info("Startup: Fresh topic sent successfully")
                     append_history({
                         'sender': BOT_NAME,
                         'text': topic_intro,
@@ -203,10 +207,10 @@ def main():
                     ai.last_reply = topic_intro
                 else:
                     print("✗ Failed to send fresh topic message\n")
-                    log_message("✗ Failed to send fresh topic message")
+                    log_error("Startup: Failed to send fresh topic message")
     else:
         print("→ No messages found in chat\n")
-        log_message("→ No messages found for startup reply")
+        log_info("Startup: No messages found for initial reply")
 
     print("-" * 50)
     print("Now monitoring for new messages...\n")
@@ -222,7 +226,7 @@ def main():
             new_messages = imessage.get_new_messages()
 
             if new_messages:
-                log_message(f"DETECTED {len(new_messages)} new message(s)")
+                log_info(f"DETECTED {len(new_messages)} new message(s)")
                 print(f"\n{len(new_messages)} new message(s):")
                 for msg in new_messages:
                     sender_label = msg['sender']
@@ -230,7 +234,7 @@ def main():
                         sender_label = BOT_NAME
                     msg_log = f"  {sender_label}: {msg['text']}"
                     print(msg_log)
-                    log_message(msg_log)
+                    log_debug(f"New message -> {sender_label}: {msg['text']}")
                     append_history(msg)
 
                 # Check if we should respond to the latest message
@@ -239,22 +243,23 @@ def main():
                 # Don't respond to bot's own messages
                 if latest_message.get('is_from_me') or latest_message['sender'] == BOT_NAME:
                     print("  → Skipping (own message)")
-                    log_message("  → Skipping (own message)")
+                    log_debug("Main loop: Skipping own message")
                 else:
                     # Generate response
                     print("  → Thinking...")
-                    log_message("  → Generating AI response...")
+                    log_debug("Main loop: Generating AI response")
                     response = ai.generate_response(conversation_history)
 
                     if response:
                         print(f"  → Responding: {response}")
-                        log_message(f"  → AI Response: {response}")
+                        response_preview = response if len(response) <= 160 else response[:160] + "..."
+                        log_info(f"Main loop: Sending AI response: {response_preview}")
                         success = imessage.send_message(response)
                         if not success:
                             print("  → Failed to send message")
-                            log_message("  → ERROR: Failed to send message")
+                            log_error("Main loop: Failed to send message")
                         else:
-                            log_message("  → Message sent successfully")
+                            log_info("Main loop: Message sent successfully")
                             append_history({
                                 'sender': BOT_NAME,
                                 'text': response,
@@ -263,7 +268,7 @@ def main():
                             ai.last_reply = response
                     else:
                         print("  → AI decided not to respond")
-                        log_message("  → AI decided not to respond (returned SKIP)")
+                        log_debug("Main loop: AI chose not to respond (returned SKIP)")
 
             # Wait before checking again
             time.sleep(CHECK_INTERVAL)

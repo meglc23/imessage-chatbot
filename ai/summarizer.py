@@ -6,7 +6,6 @@ Conversation Summarizer - Generates summaries of conversation history
 import os
 from typing import List, Dict, Optional
 from anthropic import Anthropic
-from datetime import datetime
 
 from prompts.system_prompts import SUMMARY_GENERATION_PROMPT_TEMPLATE
 from ai.conversation_utils import format_messages_to_role_string
@@ -15,16 +14,7 @@ from config.constants import (
     OPENAI_SUMMARIZER_MODEL,
     MAX_SUMMARY_TOKENS
 )
-
-
-def _debug_log(message: str, log_file: str = "data/logs/bot_log.txt"):
-    """Append debug information to the shared bot log."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"[{timestamp}]   DEBUG: {message}\n")
-    except Exception:
-        pass
+from loggings import log_debug, log_info, log_error
 
 
 class ConversationSummarizer:
@@ -72,8 +62,10 @@ class ConversationSummarizer:
             A concise summary of the conversation, or None on failure
         """
         if not messages:
+            log_debug("Summarizer: No messages provided for summary")
             return None
 
+        log_info(f"Summarizer: Generating summary for {len(messages)} messages via {self.provider}")
         conversation_text = format_messages_to_role_string(messages)
 
         summary_prompt = SUMMARY_GENERATION_PROMPT_TEMPLATE.format(
@@ -105,8 +97,9 @@ class ConversationSummarizer:
             else:
                 return None
 
-            _debug_log(f"Generated conversation summary: {summary}")
+            log_info(f"Summarizer: Summary generated (chars={len(summary)})")
             return summary or None
         except Exception as e:
             print(f"✗ Error generating summary: {e}")
+            log_error(f"Summarizer: Error generating summary ({self.provider}): {e}")
             return None

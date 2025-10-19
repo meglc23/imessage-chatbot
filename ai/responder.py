@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from anthropic import Anthropic
 from datetime import datetime
 from pathlib import Path
+from loggings import log_debug, log_info, log_warning, log_error
 
 # Ensure project root is on sys.path when running as a script
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -52,24 +53,6 @@ from config.constants import (
 # Directly load the knowledge base from file
 with open("config/knowledge_base.py", "r", encoding="utf-8") as f:
     MEG_KNOWLEDGE = f.read()
-
-def _debug_log(message: str, log_file: str = None):
-    """Append debug information to the shared bot log with date-based partitioning."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Use date-based log file if not specified
-    if log_file is None:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        log_file = f"data/logs/bot_log_{date_str}.txt"
-
-    try:
-        # Ensure logs directory exists
-        os.makedirs("data/logs", exist_ok=True)
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"[{timestamp}]   DEBUG: {message}\n")
-    except Exception:
-        pass
-
 
 class AIResponder:
     def __init__(self, provider: str = "anthropic", api_key: Optional[str] = None):
@@ -176,10 +159,10 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 
         # Fall back to stored last reply
         if self.last_reply:
-            _debug_log("No previous bot reply detected in history; falling back to stored last reply")
+            log_debug("No previous bot reply detected in history; falling back to stored last reply")
             return self.last_reply
 
-        _debug_log("No previous bot reply detected in recent history")
+        log_debug("No previous bot reply detected in recent history")
         return None
 
     def _format_conversation_history_string(self, messages: List[Dict[str, str]]) -> str:
@@ -290,7 +273,7 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         """
         # Ensure messages are in chronological order using database id when available
         if not messages:
-            _debug_log("generate_response: No messages provided")
+            log_debug("Responder: No messages provided to generate_response")
             return None
 
         if all('id' in msg for msg in messages):
@@ -298,15 +281,17 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         else:
             ordered_messages = list(messages)
 
-        _debug_log(f"generate_response: Processing {len(ordered_messages)} messages")
+        log_debug(f"Responder: Processing {len(ordered_messages)} messages")
 
         # Format conversation history using the latest messages
         recent_messages = ordered_messages[-self.context_window:]
         latest_message = ordered_messages[-1]
         latest_parent_text = latest_message['text']
 
-        _debug_log(f"generate_response: Using {len(recent_messages)} recent messages for context")
-        _debug_log(f"generate_response: Latest message from {latest_message.get('sender')}: {latest_parent_text[:100]}")
+        log_debug(f"Responder: Using {len(recent_messages)} recent messages for context")
+        log_debug(
+            f"Responder: Latest message from {latest_message.get('sender')}: {latest_parent_text[:100]}"
+        )
 
         has_bot_message = any(
             msg.get('is_from_me') or
@@ -323,7 +308,7 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
             }
             recent_messages.append(placeholder)
             ordered_messages.append(placeholder)
-            _debug_log("Appended cached bot reply to history because DB snapshot lacked it.")
+            log_debug("Responder: Added cached bot reply to compensate for missing DB entry")
             if len(recent_messages) > self.context_window:
                 recent_messages = recent_messages[-self.context_window:]
 
@@ -332,9 +317,9 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 
         # Convert to multi-turn API format
         conversation_messages = self._format_messages_for_api(recent_messages)
-        _debug_log(f"Converted {len(recent_messages)} messages into {len(conversation_messages)} API messages")
-        for i, msg in enumerate(conversation_messages):
-            _debug_log(f"  API message {i}: role={msg['role']}, content_length={len(msg['content'])}")
+        log_debug(
+            f"Responder: Converted {len(recent_messages)} messages into {len(conversation_messages)} API messages"
+        )
 
         # Format string for planner
         conversation_history = self._format_conversation_history_string(recent_messages)
@@ -342,20 +327,28 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         # Get relationship hint for planner
         relationship_hint, _ = self._get_relationship_hint(latest_message.get('sender'))
 
-        _debug_log(f"AI context latest message: sender={latest_message.get('sender')}, text={latest_parent_text}")
+        log_debug(
+            f"Responder: Planner context sender={latest_message.get('sender')}, text={latest_parent_text[:80]}"
+        )
 
         # Use planner to determine response strategy
-        _debug_log(f"generate_response: Calling planner with sender_info={relationship_hint}")
+        log_debug(f"Responder: Calling planner (sender={relationship_hint})")
         plan = plan_response(history=conversation_history)
-        _debug_log(f"generate_response: Planner result -> intent={plan.get('intent')}, tone={plan.get('tone')}, length={plan.get('response_length')}, should_respond={plan.get('should_respond')}")
-        _debug_log(f"generate_response: Planner hint -> {plan.get('hint')}")
-        
+        plan_hint = (plan.get('hint') or "")
+        if len(plan_hint) > 90:
+            plan_hint = plan_hint[:90] + "..."
+        log_info(
+            "Responder: Planner result "
+            f"(respond={plan.get('should_respond')}, intent={plan.get('intent')}, "
+            f"tone={plan.get('tone')}, length={plan.get('response_length')}, hint={plan_hint})"
+        )
+
         # Check if we should respond based on the plan
         if not should_respond_with_plan(plan):
-            _debug_log("generate_response: Planner determined not to respond - skipping message")
+            log_info("Responder: Planner skipped reply for this turn")
             return None
 
-        _debug_log("generate_response: Planner approved response - proceeding with generation")
+        log_debug("Responder: Planner approved response - generating reply")
 
         # Build planning context using helper
         intent = plan.get('intent', 'ack')
@@ -389,8 +382,10 @@ Now respond. Be brief and natural."""
             })
 
         try:
-            _debug_log(f"generate_response: Calling {self.provider} API with model={self.model}, max_tokens={max_tokens}")
-            _debug_log(f"generate_response: Using {len(conversation_messages)} multi-turn messages")
+            log_debug(
+                f"Responder: Calling {self.provider} API (model={self.model}, max_tokens={max_tokens}, "
+                f"messages={len(conversation_messages)})"
+            )
 
             # Inject time context into system prompt
             time_context = get_time_context()
@@ -404,7 +399,7 @@ Now respond. Be brief and natural."""
                     messages=conversation_messages
                 )
                 reply = response.content[0].text.strip()
-                _debug_log(f"generate_response: Received response from Anthropic (length={len(reply)} chars)")
+                log_debug(f"Responder: Received response from Anthropic (chars={len(reply)})")
 
             elif self.provider == "openai":
                 # OpenAI uses different format - combine system with messages
@@ -415,19 +410,19 @@ Now respond. Be brief and natural."""
                     messages=openai_messages
                 )
                 reply = response.choices[0].message.content.strip()
-                _debug_log(f"generate_response: Received response from OpenAI (length={len(reply)} chars)")
+                log_debug(f"Responder: Received response from OpenAI (chars={len(reply)})")
 
             # Always return the response (let AI handle greetings naturally)
             if not reply:
-                _debug_log("generate_response: Empty response received, returning None")
+                log_warning("Responder: Empty response received from provider")
                 return None
 
             self.last_reply = reply
-            _debug_log(f"generate_response: SUCCESS - Generated reply: {reply}")
+            log_info(f"Responder: Reply ready (chars={len(reply)})")
             return reply
 
         except Exception as e:
-            _debug_log(f"generate_response: ERROR - {type(e).__name__}: {str(e)}")
+            log_error(f"Responder: Error generating response - {type(e).__name__}: {e}")
             print(f"✗ Error generating response: {e}")
             return None
 
@@ -465,6 +460,7 @@ Now respond. Be brief and natural."""
         if not messages:
             return None
 
+        log_info(f"Responder: Generating summary (messages={len(messages)})")
         conversation_text = self._format_conversation_text(messages, for_summary=True)
         prompt = SUMMARY_GENERATION_PROMPT_TEMPLATE.format(conversation_text=conversation_text)
 
@@ -494,9 +490,14 @@ Now respond. Be brief and natural."""
             else:
                 return None
 
+            if summary:
+                log_info(f"Responder: Summary generated (chars={len(summary)})")
+            else:
+                log_warning("Responder: Provider returned empty summary")
             return summary or None
         except Exception as e:
             print(f"✗ Error generating summary: {e}")
+            log_error(f"Responder: Error generating summary - {type(e).__name__}: {e}")
             return None
 
     def generate_response_with_summary(
@@ -519,6 +520,11 @@ Now respond. Be brief and natural."""
         """
         if not messages:
             return None
+
+        log_info(
+            f"Responder: Generating summary-aware reply "
+            f"(messages={len(messages)}, summary_chars={len(summary)})"
+        )
 
         # Use the same formatting logic as generate_response
         if all('id' in msg for msg in messages):
@@ -545,11 +551,11 @@ Now respond. Be brief and natural."""
 
         # Use planner to determine response strategy
         plan = plan_response(history=conversation_history)
-        _debug_log(f"Summary-aware planner result: {plan}")
+        log_debug(f"Summary-aware planner result: {plan}")
 
         # Check if we should respond based on the plan
         if not should_respond_with_plan(plan):
-            _debug_log("Summary-aware planner determined not to respond")
+            log_debug("Summary-aware planner determined not to respond")
             return None
 
         # Build planning context using helper
@@ -590,7 +596,7 @@ Now respond:"""
             })
 
         try:
-            _debug_log(f"Summary-aware: Using {len(conversation_messages)} multi-turn messages")
+            log_debug(f"Summary-aware: Using {len(conversation_messages)} multi-turn messages")
 
             # Inject time context into system prompt
             time_context = get_time_context()
@@ -616,16 +622,17 @@ Now respond:"""
                 return None
 
             # If AI says to skip, return None
-            if reply.upper() == "SKIP" or not reply:
-                _debug_log("Summary-aware response: No pending questions, returning None")
+            if not reply or reply.strip().upper() == "SKIP":
+                log_info("Responder: Summary-aware path chose to skip reply")
                 return None
 
             self.last_reply = reply
-            _debug_log(f"Summary-aware response generated: {reply}")
+            log_info(f"Responder: Summary-aware reply ready (chars={len(reply)})")
             return reply
 
         except Exception as e:
             print(f"✗ Error generating summary-aware response: {e}")
+            log_error(f"Responder: Error in summary-aware response - {type(e).__name__}: {e}")
             return None
 
 
@@ -648,6 +655,12 @@ Now respond:"""
         """
         # Build system prompt with time and summary context
         time_context = get_time_context()
+
+        log_info(
+            "Responder: Generating startup topic "
+            f"(recent_messages={len(recent_messages) if recent_messages else 0}, "
+            f"has_summary={'yes' if summary else 'no'})"
+        )
 
         summary_context = ""
         if summary:
@@ -699,9 +712,14 @@ Recent conversation summary:
             else:
                 return None
 
+            if topic:
+                log_info(f"Responder: Startup topic generated (chars={len(topic)})")
+            else:
+                log_warning("Responder: Startup topic generation returned empty text")
             return topic or None
         except Exception as e:
             print(f"✗ Error generating startup topic: {e}")
+            log_error(f"Responder: Error generating startup topic - {type(e).__name__}: {e}")
             return None
 
 

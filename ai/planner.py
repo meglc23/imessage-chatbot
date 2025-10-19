@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ai.conversation_utils import parse_role_format_to_messages
 from config.constants import ANTHROPIC_PLANNER_MODEL, MAX_PLANNER_TOKENS
+from loggings import log_debug, log_info, log_error
 
 load_dotenv()
 
@@ -136,8 +137,12 @@ def _call_model(messages: list, system: str = None) -> str:
     if system:
         params["system"] = system
 
+    log_debug(f"Planner: Calling Anthropic planner ({len(messages)} messages, max_tokens={MAX_PLANNER_TOKENS})")
     response = client.messages.create(**params)
-    return response.content[0].text.strip()
+    text = response.content[0].text.strip()
+    preview = text if len(text) <= 160 else f"{text[:160]}..."
+    log_debug(f"Planner: Raw model response preview: {preview}")
+    return text
 
 
 def _validate_plan(plan: Dict) -> Dict:
@@ -181,11 +186,21 @@ def plan_response(history: str) -> Dict:
     messages = parse_role_format_to_messages(history)
 
     try:
+        log_info(f"Planner: Generating plan (history_messages={len(messages)})")
         response = _call_model(messages, system=system_prompt)
         json_str = _extract_json(response)
         plan = json.loads(json_str)
-        return _validate_plan(plan)
-    except Exception:
+        validated_plan = _validate_plan(plan)
+        log_info(
+            "Planner: Plan ready "
+            f"(respond={validated_plan.get('should_respond')}, "
+            f"intent={validated_plan.get('intent')}, "
+            f"tone={validated_plan.get('tone')}, "
+            f"length={validated_plan.get('response_length')})"
+        )
+        return validated_plan
+    except Exception as e:
+        log_error(f"Planner: Failed to generate plan, using default. Error: {e}")
         return DEFAULT_PLAN.copy()
 
 
@@ -201,11 +216,14 @@ def should_respond_with_plan(plan: Dict) -> bool:
     """
     # Check plan's decision
     if not plan.get("should_respond", True):
+        log_info("Planner decision: skip response (should_respond=false)")
         return False
 
     # Random filter for minimal acks (50% chance to skip)
     if plan.get("intent") == "ack" and plan.get("response_length") == "minimal":
-        return random.random() >= 0.5
+        respond = random.random() >= 0.5
+        log_debug(f"Planner decision: minimal ack gate -> {'respond' if respond else 'skip'}")
+        return respond
 
     return True
 
