@@ -150,6 +150,17 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         else:
             return "other", self.alias_sender(sender or 'Unknown')
 
+    @staticmethod
+    def _sanitize_reply(text: Optional[str]) -> Optional[str]:
+        """Strip leading assistant tags or whitespace artifacts from replies."""
+        if not text:
+            return text
+        cleaned = text.lstrip()
+        lower = cleaned.lower()
+        if lower.startswith("[assistant]"):
+            cleaned = cleaned[len("[assistant]") :].lstrip(" ：:，,")
+        return cleaned
+
     def _get_last_bot_reply(self, messages: List[Dict[str, str]]) -> Optional[str]:
         """Find the last bot reply in the message list."""
         for msg in reversed(messages):
@@ -362,6 +373,7 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 
         # Build instruction header
         instruction_header = f"""{instruction}
+Do NOT prefix your reply with any labels such as [assistant], [mom], or [dad].
 
 Now respond to the following message:"""
 
@@ -417,9 +429,13 @@ Now respond. Be brief and natural."""
                 log_warning("Responder: Empty response received from provider")
                 return None
 
-            self.last_reply = reply
-            log_info(f"Responder: Reply ready (chars={len(reply)})")
-            return reply
+            sanitized = self._sanitize_reply(reply)
+            if sanitized != reply:
+                log_debug("Responder: Removed leading role tag from reply")
+
+            self.last_reply = sanitized
+            log_info(f"Responder: Reply ready (chars={len(sanitized)})")
+            return sanitized
 
         except Exception as e:
             log_error(f"Responder: Error generating response - {type(e).__name__}: {e}")
@@ -573,6 +589,7 @@ Now respond. Be brief and natural."""
 {summary}
 
 Instructions: {instruction}
+Do NOT prefix your reply with any labels such as [assistant], [mom], or [dad].
 
 Now respond to the following message:"""
 
@@ -626,9 +643,13 @@ Now respond:"""
                 log_info("Responder: Summary-aware path chose to skip reply")
                 return None
 
-            self.last_reply = reply
-            log_info(f"Responder: Summary-aware reply ready (chars={len(reply)})")
-            return reply
+            sanitized = self._sanitize_reply(reply)
+            if sanitized != reply:
+                log_debug("Responder: Removed leading role tag from summary-aware reply")
+
+            self.last_reply = sanitized
+            log_info(f"Responder: Summary-aware reply ready (chars={len(sanitized)})")
+            return sanitized
 
         except Exception as e:
             print(f"✗ Error generating summary-aware response: {e}")
@@ -694,7 +715,7 @@ Recent conversation summary:
         if not messages or messages[-1]["role"] == "assistant":
             messages.append({
                 "role": "user",
-                "content": "Hi, what's up?"
+                "content": "Share one short Chinese sentence to start a new topic with my parents. Do NOT prefix it with any labels such as [assistant], [mom], or [dad]."
             })
 
         try:
@@ -719,7 +740,11 @@ Recent conversation summary:
                 return None
 
             if topic:
-                log_info(f"Responder: Startup topic generated (chars={len(topic)})")
+                sanitized = self._sanitize_reply(topic)
+                if sanitized != topic:
+                    log_debug("Responder: Removed leading role tag from startup topic")
+                log_info(f"Responder: Startup topic generated (chars={len(sanitized)})")
+                return sanitized or None
             else:
                 log_warning("Responder: Startup topic generation returned empty text")
             return topic or None
