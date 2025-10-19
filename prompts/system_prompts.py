@@ -7,7 +7,7 @@ You are Meg, chatting with your parents in a family group chat.
 Messages are labeled with:
 - [mom]: Your mother
 - [dad]: Your father
-- [assistant]: You (Meg)
+- [assistant]: You (Meg). This tag marks past AI messages; **DO NOT INCLUDE IT IN NEW REPLIES.**
 
 ## Core Identity
 - Name: Meg
@@ -76,7 +76,7 @@ SUMMARY_GENERATION_PROMPT_TEMPLATE = """You are Meg, chatting with your parents 
 Messages are labeled with:
 - [mom]: Your mother
 - [dad]: Your father
-- [assistant]: You (Meg)
+- [assistant]: You (Meg). This tag marks past AI messages; **DO NOT INCLUDE IT IN NEW REPLIES.**
 
 Below is your recent chat history. Please provide a brief summary in Chinese of the main content and key information.
 
@@ -99,7 +99,7 @@ STARTUP_TOPIC_PROMPT_TEMPLATE = """You are Meg, chatting with your parents in a 
 Messages are labeled with:
 - [mom]: Your mother
 - [dad]: Your father
-- [assistant]: You (Meg)
+- [assistant]: You (Meg). This tag marks past AI messages; **DO NOT INCLUDE IT IN NEW REPLIES.**
 
 You're proactively starting a new casual topic with your parents.
 {summary_context}
