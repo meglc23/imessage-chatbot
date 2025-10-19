@@ -4,10 +4,17 @@ AI Responder - Generates responses using AI APIs
 """
 
 import os
+import sys
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from anthropic import Anthropic
 from datetime import datetime
+from pathlib import Path
+
+# Ensure project root is on sys.path when running as a script
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 # Load environment variables from .env file
 load_dotenv()
@@ -354,30 +361,31 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         intent = plan.get('intent', 'ack')
         response_length = plan.get('response_length', 'short')
         length_instruction = self._build_length_instruction(intent, response_length)
+        tone = plan.get('tone', 'neutral')
+        hint = plan.get('hint', '')
 
-        planning_context = f"""
-PLANNING CONTEXT:
-- Intent: {plan['intent']}
-- Tone: {plan['tone']}
-- Response Length: {plan['response_length']} ({length_instruction})
-- Topic: {plan['topic']}
-- Hint: {plan['hint']}
-"""
-        
-        # Build context prompt
-        context_prompt = f"""
-            {planning_context}
-        Now respond. Be brief and natural."""
+        # Build instruction in natural language
+        instruction = f"Use {tone} tone, {length_instruction}, {hint}."
 
-        # Append context as final user message
+        # Build instruction header
+        instruction_header = f"""{instruction}
+
+Now respond to the following message:"""
+
+        # Prepend instructions to conversation messages
         if conversation_messages and conversation_messages[-1]["role"] == "user":
-            # Append to last user message
-            conversation_messages[-1]["content"] += f"\n\n{context_prompt}"
+            # Prepend to last user message
+            original_content = conversation_messages[-1]["content"]
+            conversation_messages[-1]["content"] = f"""{instruction_header}
+{original_content}"""
         else:
             # Add as new user message
             conversation_messages.append({
                 "role": "user",
-                "content": context_prompt
+                "content": f"""{instruction_header}
+(No message)
+
+Now respond. Be brief and natural."""
             })
 
         try:
@@ -548,33 +556,37 @@ PLANNING CONTEXT:
         intent = plan.get('intent', 'ack')
         response_length = plan.get('response_length', 'short')
         length_instruction = self._build_length_instruction(intent, response_length)
+        tone = plan.get('tone', 'neutral')
+        hint = plan.get('hint', '')
 
-        planning_context = f"""
-PLANNING CONTEXT:
-- Intent: {plan['intent']}
-- Tone: {plan['tone']}
-- Response Length: {plan['response_length']} ({length_instruction})
-- Topic: {plan['topic']}
-- Hint: {plan['hint']}
-"""
+        # Build instruction in natural language
+        instruction = f"Use {tone} tone, {length_instruction}, {hint}."
 
-        # Build summary instruction (conversation history is in multi-turn messages above)
-        summary_instruction = f"""Conversation Summary:
+        # Build summary header
+        summary_header = f"""Here is previous conversation summary:
 {summary}
 
-{planning_context}
+Instructions: {instruction}
 
-Task: Based on the summary and conversation above, if there are unanswered questions or pending items, respond briefly (1 sentence). Otherwise return "SKIP".
+Now respond to the following message:"""
 
-Your response:"""
-
-        # Append summary instruction to conversation messages
+        # Prepend summary and instructions to conversation messages
         if conversation_messages and conversation_messages[-1]["role"] == "user":
-            conversation_messages[-1]["content"] += f"\n\n{summary_instruction}"
+            # Prepend to last user message
+            original_content = conversation_messages[-1]["content"]
+            conversation_messages[-1]["content"] = f"""{summary_header}
+{original_content}
+"""
         else:
+            # Create new user message with summary
             conversation_messages.append({
                 "role": "user",
-                "content": summary_instruction
+                "content": f"""{summary_header}
+(No pending message)
+
+Based on the instruction above, respond briefly or return "SKIP".
+
+Now respond:"""
             })
 
         try:

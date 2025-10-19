@@ -4,9 +4,16 @@
 import json
 import os
 import random
+import sys
+from pathlib import Path
 from typing import Dict
 from anthropic import Anthropic
 from dotenv import load_dotenv
+
+# Ensure project root is on sys.path when running as a script
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from ai.conversation_utils import parse_role_format_to_messages
 from config.constants import ANTHROPIC_PLANNER_MODEL, MAX_PLANNER_TOKENS
