@@ -684,6 +684,12 @@ Recent conversation summary:
             conversation_context = format_messages_to_role_string(recent_messages[-3:])
             messages = parse_role_format_to_messages(conversation_context)
 
+        # Drop any empty-content messages to satisfy provider requirements
+        messages = [
+            msg for msg in messages
+            if msg.get("content") and msg["content"].strip()
+        ]
+
         # If no messages or last is assistant, add a user prompt
         if not messages or messages[-1]["role"] == "assistant":
             messages.append({
