@@ -76,6 +76,7 @@ def main():
         else:
             fake_id_counter = (fake_id_counter or 0) + 1
             entry_copy['id'] = fake_id_counter
+        entry_copy['text'] = entry_copy.get('text') or ""
         if not entry_copy.get('time'):
             entry_copy['time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if entry_copy.get('is_from_me') or (entry_copy.get('sender') or "").lower() == BOT_NAME.lower():
@@ -171,8 +172,9 @@ def main():
 
     if conversation_history:
         latest = conversation_history[-1]
-        print(f"Latest message from {latest['sender']}: {latest['text'][:50]}...")
-        log_info(f"Latest message: {latest['sender']}: {latest['text'][:80]}")
+        latest_text = latest.get('text') or ""
+        print(f"Latest message from {latest.get('sender')}: {latest_text[:50]}...")
+        log_info(f"Latest message: {latest.get('sender')}: {latest_text[:80]}")
 
         # Try to respond to pending messages using summary context
         responded = respond_to_pending("Startup", use_summary=True)
