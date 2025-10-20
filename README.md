@@ -8,10 +8,10 @@ Keeps family chats moving by watching threads, remembering context, and replying
 
 ## Features
 
-- 🧠 **Smart Planning** - Plans response strategy (intent, tone, length) before replying
-- 💬 **Natural Responses** - Uses your knowledge base and communication style
+- 💬 **Natural Responses** - Direct AI generation using your knowledge base and communication style
 - 🧾 **Conversation History** - Keeps the latest 40 messages for continuity
-- 📊 **Smart Startup** - Summarizes conversation and addresses unanswered questions
+- 📊 **Smart Summaries** - Generates conversation summaries to track unanswered questions
+- 🤖 **Proactive Topics** - Generates natural conversation starters
 - 🔒 **Privacy First** - All sensitive data gitignored
 
 ## Quick Start
@@ -30,14 +30,14 @@ pip install -r requirements.txt
 ## Project Structure
 
 ```
-├── bot.py                    # Main script
+├── bot.py                    # Main bot loop
 ├── imessage_handler.py       # AppleScript bridge
 ├── ai/
-│   ├── planner.py            # Response planning
-│   ├── responder.py          # Response generation
-│   └── summarizer.py         # Conversation summarization
+│   ├── prompts.py            # All prompt templates (system & user)
+│   ├── responder.py          # Response & summary generation
+│   ├── conversation_utils.py # Message formatting utilities
+│   └── planner.py            # (deprecated, not used)
 ├── config/                   # Contacts & knowledge (gitignored)
-├── prompts/                  # Prompt templates
 ├── scripts/                  # Data extraction tools
 ├── tests/                    # Test suite
 ├── utils/                    # Shared utilities
@@ -54,9 +54,9 @@ Use `training/scripts/` to turn exports into JSONL datasets. Drop source files i
 ## Testing
 
 ```bash
-python tests/test_planner.py
-python tests/test_connection.py
-python tests/test_ai_responder.py
+python tests/test_summary.py           # Unit tests for summary & response generation
+python tests/test_generate_summary.py  # Live API test for summary generation
+python tests/test_connection.py        # Test iMessage connection
 ```
 
 ## Scripts
@@ -72,12 +72,18 @@ python training/scripts/prepare_gpt_training_data.py
 python training/scripts/prepare_imessage_training_data.py
 ```
 
+## Architecture
+
+**Planner removed** - Modern LLMs (GPT-4, Claude 3.5) handle tone, decision-making, and planning through Chain-of-Thought reasoning. The separate planning stage was redundant. Now uses single-stage direct generation with powerful system prompts.
+
+Benefits: Faster (1 API call vs 2), cheaper (half the tokens), more natural responses.
+
 ## Customization
 
-- **Tone & style** – tweak `prompts/system_prompts.py`.
+- **Tone & style** – edit `ai/prompts.py` (RESPONSE_SYSTEM_PROMPT)
 - **Knowledge** – refresh `config/knowledge_base.py`.
-- **Contacts** – update aliases in `config/contacts.py`.
-- **Models** – adjust constants in `ai/responder.py` and `ai/planner.py`.
+- **Contacts** – update `config/contacts.py`
+- **Models** – adjust `config/constants.py`
 
 ## Troubleshooting
 
