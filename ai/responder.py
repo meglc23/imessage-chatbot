@@ -24,10 +24,11 @@ load_dotenv()
 from config.contacts import CONTACT_ALIASES, get_mom_contacts, get_dad_contacts
 
 # Import prompts
-from prompts.system_prompts import (
-    SYSTEM_PROMPT,
-    RESPONSE_GENERATION_INSTRUCTIONS,
+from ai.prompts import (
+    RESPONSE_SYSTEM_PROMPT,
+    SUMMARY_GENERATION_SYSTEM_PROMPT,
     SUMMARY_GENERATION_PROMPT_TEMPLATE,
+    STARTUP_TOPIC_SYSTEM_PROMPT,
     STARTUP_TOPIC_PROMPT_TEMPLATE
 )
 
@@ -69,14 +70,8 @@ class AIResponder:
         self.provider = provider.lower()
         self.knowledge_base = MEG_KNOWLEDGE
 
-        # Build base system prompt template (time will be injected dynamically)
-        self.system_prompt_template = f"""{SYSTEM_PROMPT}
-
-IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
-{MEG_KNOWLEDGE}
-
-{RESPONSE_GENERATION_INSTRUCTIONS}
-"""
+        # System prompt template accepts time_context and knowledge_base as parameters
+        self.system_prompt_template = RESPONSE_SYSTEM_PROMPT
 
         self.bot_name = os.getenv("BOT_NAME", "Meg")
         self.last_reply: Optional[str] = None
@@ -104,23 +99,6 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
-    def alias_sender(self, sender: str) -> str:
-        """
-        Map raw sender identifiers to Chinese display names.
-
-        Only used by external summarizer.py for generating Chinese summaries.
-        For internal use, prefer _get_relationship_hint() which returns role labels.
-        """
-        if not sender:
-            return sender
-        key = sender.strip().lower()
-
-        # Contact aliases from config (email/phone → Chinese name)
-        if key in CONTACT_ALIASES:
-            return CONTACT_ALIASES[key]
-
-        return sender
-
     def _get_relationship_hint(self, sender: str) -> tuple[str, str]:
         """
         Determine relationship and alias for a sender.
@@ -145,11 +123,17 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         elif sender_lower in dad_contacts:
             return "dad", "爸爸"
         else:
-            return "other", self.alias_sender(sender or 'Unknown')
+            # For other senders, try to get Chinese alias from config
+            sender_key = (sender or 'Unknown').strip().lower()
+            sender_alias = CONTACT_ALIASES.get(sender_key, sender or 'Unknown')
+            return "other", sender_alias
 
     @staticmethod
     def _sanitize_reply(text: Optional[str]) -> Optional[str]:
-        """Strip leading assistant tags or whitespace artifacts from replies."""
+        """
+        Strip leading [assistant] tags from AI output.
+        Only used for startup topic generation where we explicitly tell AI not to use labels.
+        """
         if not text:
             return text
         cleaned = text.lstrip()
@@ -157,21 +141,6 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         if lower.startswith("[assistant]"):
             cleaned = cleaned[len("[assistant]") :].lstrip(" ：:，,")
         return cleaned
-
-    def _get_last_bot_reply(self, messages: List[Dict[str, str]]) -> Optional[str]:
-        """Find the last bot reply in the message list."""
-        for msg in reversed(messages):
-            sender_raw = msg.get('sender', '')
-            if msg.get('is_from_me') or sender_raw.lower() == self.bot_name.lower():
-                return msg['text']
-
-        # Fall back to stored last reply
-        if self.last_reply:
-            log_debug("No previous bot reply detected in history; falling back to stored last reply")
-            return self.last_reply
-
-        log_debug("No previous bot reply detected in recent history")
-        return None
 
     def _format_messages_for_api(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """
@@ -240,10 +209,6 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
 
         return api_messages
 
-    def set_system_prompt(self, prompt: str):
-        """Set a custom system prompt template."""
-        self.system_prompt_template = prompt
-
     def generate_response(
         self,
         messages: List[Dict[str, str]],
@@ -300,35 +265,11 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
             if len(recent_messages) > self.context_window:
                 recent_messages = recent_messages[-self.context_window:]
 
-        # Get last bot reply using helper
-        last_bot_reply = self._get_last_bot_reply(recent_messages)
-
         # Convert to multi-turn API format
         conversation_messages = self._format_messages_for_api(recent_messages)
         log_debug(
             f"Responder: Converted {len(recent_messages)} messages into {len(conversation_messages)} API messages"
         )
-
-        # Build simple instruction header
-        instruction_header = """Do NOT prefix your reply with any labels such as [assistant], [mom], or [dad].
-
-Now respond to the following message:"""
-
-        # Prepend instructions to conversation messages
-        if conversation_messages and conversation_messages[-1]["role"] == "user":
-            # Prepend to last user message
-            original_content = conversation_messages[-1]["content"]
-            conversation_messages[-1]["content"] = f"""{instruction_header}
-{original_content}"""
-        else:
-            # Add as new user message
-            conversation_messages.append({
-                "role": "user",
-                "content": f"""{instruction_header}
-(No message)
-
-Now respond. Be brief and natural."""
-            })
 
         try:
             log_debug(
@@ -336,9 +277,12 @@ Now respond. Be brief and natural."""
                 f"messages={len(conversation_messages)})"
             )
 
-            # Inject time context into system prompt
+            # Inject time context and knowledge base into system prompt
             time_context = get_time_context()
-            system_prompt = self.system_prompt_template.format(time_context=time_context)
+            system_prompt = self.system_prompt_template.format(
+                time_context=time_context,
+                knowledge_base=self.knowledge_base
+            )
 
             if self.provider == "anthropic":
                 response = self.client.messages.create(
@@ -366,13 +310,9 @@ Now respond. Be brief and natural."""
                 log_warning("Responder: Empty response received from provider")
                 return None
 
-            sanitized = self._sanitize_reply(reply)
-            if sanitized != reply:
-                log_debug("Responder: Removed leading role tag from reply")
-
-            self.last_reply = sanitized
-            log_info(f"Responder: Reply ready (chars={len(sanitized)})")
-            return sanitized
+            self.last_reply = reply
+            log_info(f"Responder: Reply ready (chars={len(reply)})")
+            return reply
 
         except Exception as e:
             log_error(f"Responder: Error generating response - {type(e).__name__}: {e}")
@@ -382,26 +322,6 @@ Now respond. Be brief and natural."""
     # ------------------------------------------------------------------
     # Conversation summarisation utilities
     # ------------------------------------------------------------------
-
-    def _format_conversation_text(self, messages: List[Dict[str, str]], for_summary: bool = True) -> str:
-        """Return a formatted conversation transcript for prompts."""
-        lines: List[str] = []
-        for msg in messages:
-            sender_alias = self.alias_sender(msg.get('sender', ''))
-            is_reaction = msg.get('is_reaction')
-            text = msg.get('text') or ""
-
-            if is_reaction:
-                reaction_display = text or "[Reaction]"
-                lines.append(f"{sender_alias} reacted {reaction_display}")
-            else:
-                lines.append(f"{sender_alias}: {text}")
-
-        if not for_summary:
-            # Limit to last 10 lines for response prompts
-            lines = lines[-10:]
-
-        return "\n".join(lines)
 
     def generate_summary(
         self,
@@ -414,19 +334,16 @@ Now respond. Be brief and natural."""
             return None
 
         log_info(f"Responder: Generating summary (messages={len(messages)})")
-        conversation_text = self._format_conversation_text(messages, for_summary=True)
+        # Use role string format: [mom], [dad], [assistant]
+        conversation_text = format_messages_to_role_string(messages, self.bot_name)
         prompt = SUMMARY_GENERATION_PROMPT_TEMPLATE.format(conversation_text=conversation_text)
 
         try:
-            # Inject time context into system prompt
-            time_context = get_time_context()
-            system_prompt = self.system_prompt_template.format(time_context=time_context)
-
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=max_tokens,
-                    system=system_prompt,
+                    system=SUMMARY_GENERATION_SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": prompt}]
                 )
                 summary = response.content[0].text.strip()
@@ -435,7 +352,7 @@ Now respond. Be brief and natural."""
                     model=self.model,
                     max_tokens=max_tokens,
                     messages=[
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": SUMMARY_GENERATION_SYSTEM_PROMPT},
                         {"role": "user", "content": prompt}
                     ]
                 )
@@ -490,39 +407,33 @@ Now respond. Be brief and natural."""
         # Convert to multi-turn API format
         conversation_messages = self._format_messages_for_api(recent_messages)
 
-        # Build summary header
-        summary_header = f"""Here is previous conversation summary:
-{summary}
+        # Add summary context to the conversation
+        if conversation_messages:
+            # Prepend summary to first user message
+            for i, msg in enumerate(conversation_messages):
+                if msg["role"] == "user":
+                    conversation_messages[i]["content"] = f"""[Earlier conversation summary: {summary}]
 
-Do NOT prefix your reply with any labels such as [assistant], [mom], or [dad].
-
-Now respond to the following message:"""
-
-        # Prepend summary and instructions to conversation messages
-        if conversation_messages and conversation_messages[-1]["role"] == "user":
-            # Prepend to last user message
-            original_content = conversation_messages[-1]["content"]
-            conversation_messages[-1]["content"] = f"""{summary_header}
-{original_content}
-"""
+{msg["content"]}"""
+                    break
         else:
-            # Create new user message with summary
+            # No messages, just provide summary
             conversation_messages.append({
                 "role": "user",
-                "content": f"""{summary_header}
-(No pending message)
+                "content": f"""[Conversation summary: {summary}]
 
-Based on the instruction above, respond briefly or return "SKIP".
-
-Now respond:"""
+If there are unanswered questions above, respond. Otherwise say "SKIP"."""
             })
 
         try:
             log_debug(f"Summary-aware: Using {len(conversation_messages)} multi-turn messages")
 
-            # Inject time context into system prompt
+            # Inject time context and knowledge base into system prompt
             time_context = get_time_context()
-            system_prompt = self.system_prompt_template.format(time_context=time_context)
+            system_prompt = self.system_prompt_template.format(
+                time_context=time_context,
+                knowledge_base=self.knowledge_base
+            )
 
             if self.provider == "anthropic":
                 response = self.client.messages.create(
@@ -548,13 +459,9 @@ Now respond:"""
                 log_info("Responder: Summary-aware path chose to skip reply")
                 return None
 
-            sanitized = self._sanitize_reply(reply)
-            if sanitized != reply:
-                log_debug("Responder: Removed leading role tag from summary-aware reply")
-
-            self.last_reply = sanitized
-            log_info(f"Responder: Summary-aware reply ready (chars={len(sanitized)})")
-            return sanitized
+            self.last_reply = reply
+            log_info(f"Responder: Summary-aware reply ready (chars={len(reply)})")
+            return reply
 
         except Exception as e:
             print(f"✗ Error generating summary-aware response: {e}")
@@ -588,17 +495,15 @@ Now respond:"""
             f"has_summary={'yes' if summary else 'no'})"
         )
 
-        summary_context = ""
-        if summary:
-            summary_context = f"""
-Recent conversation summary:
-{summary}
-"""
-
-        startup_system_prompt = STARTUP_TOPIC_PROMPT_TEMPLATE.format(
+        # Build system prompt with time and knowledge base context
+        startup_system_prompt = STARTUP_TOPIC_SYSTEM_PROMPT.format(
             time_context=time_context,
-            summary_context=summary_context,
             knowledge_base=self.knowledge_base
+        )
+
+        # Build user prompt with summary
+        user_prompt = STARTUP_TOPIC_PROMPT_TEMPLATE.format(
+            summary_context=f"\n{summary}" if summary else ""
         )
 
         # Build messages array with recent context
@@ -616,12 +521,15 @@ Recent conversation summary:
             if msg.get("content") and msg["content"].strip()
         ]
 
-        # If no messages or last is assistant, add a user prompt
+        # Add user prompt
         if not messages or messages[-1]["role"] == "assistant":
             messages.append({
                 "role": "user",
-                "content": "Share one short Chinese sentence to start a new topic with my parents. Do NOT prefix it with any labels such as [assistant], [mom], or [dad]."
+                "content": user_prompt
             })
+        else:
+            # Prepend to last user message (put prompt before conversation context)
+            messages[-1]["content"] = f"{user_prompt}\n\n{messages[-1]['content']}"
 
         try:
             if self.provider == "anthropic":
@@ -647,7 +555,7 @@ Recent conversation summary:
             if topic:
                 sanitized = self._sanitize_reply(topic)
                 if sanitized != topic:
-                    log_debug("Responder: Removed leading role tag from startup topic")
+                    log_warning(f"Responder: AI included [assistant] tag in startup topic, removed it: '{topic}' -> '{sanitized}'")
                 log_info(f"Responder: Startup topic generated (chars={len(sanitized)})")
                 return sanitized or None
             else:

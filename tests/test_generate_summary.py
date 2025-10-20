@@ -2,6 +2,13 @@
 """
 Quick test to see actual AI-generated summary output
 """
+import sys
+from pathlib import Path
+
+# Add project root to Python path
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 from ai.responder import AIResponder
 from config.contacts import get_mom_contacts, get_dad_contacts

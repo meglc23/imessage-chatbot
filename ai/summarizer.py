@@ -7,7 +7,7 @@ import os
 from typing import List, Dict, Optional
 from anthropic import Anthropic
 
-from prompts.system_prompts import SUMMARY_GENERATION_PROMPT_TEMPLATE
+from ai.prompts import SUMMARY_GENERATION_PROMPT_TEMPLATE
 from ai.conversation_utils import format_messages_to_role_string
 from config.constants import (
     ANTHROPIC_SUMMARIZER_MODEL,

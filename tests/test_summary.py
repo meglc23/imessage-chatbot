@@ -103,9 +103,9 @@ class TestSummary(unittest.TestCase):
 
         # Verify summary is in the user message content
         messages = call_kwargs.get("messages", [])
-        last_user_msg = messages[-1]["content"] if messages else ""
+        last_user_msg = messages[0]["content"] if messages else ""  # Summary is in first user message
         self.assertIn(summary, last_user_msg)
-        self.assertIn("Here is previous conversation summary", last_user_msg)
+        self.assertIn("Earlier conversation summary", last_user_msg)
 
         print(f"Generated Response: {response}\n")
         self.assertEqual(response, "好啊！周末有空，几点视频？")
@@ -137,10 +137,10 @@ class TestSummary(unittest.TestCase):
             max_tokens=call_kwargs.get("max_tokens")
         )
 
-        # Verify summary is in the system prompt
-        system_prompt = call_kwargs.get("system", "")
-        self.assertIn(summary, system_prompt)
-        self.assertIn("conversation summary", system_prompt.lower())
+        # Verify summary is in the user messages
+        messages = call_kwargs.get("messages", [])
+        last_user_msg = messages[-1]["content"] if messages else ""
+        self.assertIn(summary, last_user_msg)
 
         print(f"Generated Topic: {topic}\n")
         self.assertEqual(topic, "妈咪，最近有没有发现什么好吃的餐厅？")
