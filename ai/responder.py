@@ -35,7 +35,6 @@ from ai.prompts import (
 # Import shared conversation utilities
 from ai.conversation_utils import (
     format_messages_to_role_string,
-    parse_role_format_to_messages,
     get_time_context
 )
 
@@ -127,20 +126,6 @@ class AIResponder:
             sender_key = (sender or 'Unknown').strip().lower()
             sender_alias = CONTACT_ALIASES.get(sender_key, sender or 'Unknown')
             return "other", sender_alias
-
-    @staticmethod
-    def _sanitize_reply(text: Optional[str]) -> Optional[str]:
-        """
-        Strip leading [assistant] tags from AI output.
-        Only used for startup topic generation where we explicitly tell AI not to use labels.
-        """
-        if not text:
-            return text
-        cleaned = text.lstrip()
-        lower = cleaned.lower()
-        if lower.startswith("[assistant]"):
-            cleaned = cleaned[len("[assistant]") :].lstrip(" ：:，,")
-        return cleaned
 
     def _format_messages_for_api(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """
@@ -501,35 +486,16 @@ If there are unanswered questions above, respond. Otherwise say "SKIP"."""
             knowledge_base=self.knowledge_base
         )
 
-        # Build user prompt with summary
+        # Build user prompt with summary context
         user_prompt = STARTUP_TOPIC_PROMPT_TEMPLATE.format(
-            summary_context=f"\n{summary}" if summary else ""
+            summary_context=f"\n{summary}" if summary else "最近有什么好玩的吗？"
         )
 
-        # Build messages array with recent context
-        messages = []
-
-        # Add recent messages as context (if provided)
-        if recent_messages:
-            # Convert recent messages to multi-turn format
-            conversation_context = format_messages_to_role_string(recent_messages[-3:])
-            messages = parse_role_format_to_messages(conversation_context)
-
-        # Drop any empty-content messages to satisfy provider requirements
-        messages = [
-            msg for msg in messages
-            if msg.get("content") and msg["content"].strip()
-        ]
-
-        # Add user prompt
-        if not messages or messages[-1]["role"] == "assistant":
-            messages.append({
-                "role": "user",
-                "content": user_prompt
-            })
-        else:
-            # Prepend to last user message (put prompt before conversation context)
-            messages[-1]["content"] = f"{user_prompt}\n\n{messages[-1]['content']}"
+        # Always call API with a single user message; no conversation history
+        messages = [{
+            "role": "user",
+            "content": user_prompt
+        }]
 
         try:
             if self.provider == "anthropic":
@@ -553,11 +519,8 @@ If there are unanswered questions above, respond. Otherwise say "SKIP"."""
                 return None
 
             if topic:
-                sanitized = self._sanitize_reply(topic)
-                if sanitized != topic:
-                    log_warning(f"Responder: AI included [assistant] tag in startup topic, removed it: '{topic}' -> '{sanitized}'")
-                log_info(f"Responder: Startup topic generated (chars={len(sanitized)})")
-                return sanitized or None
+                log_info(f"Responder: Startup topic generated (chars={len(topic)})")
+                return topic or None
             else:
                 log_warning("Responder: Startup topic generation returned empty text")
             return topic or None
