@@ -31,9 +31,6 @@ from prompts.system_prompts import (
     STARTUP_TOPIC_PROMPT_TEMPLATE
 )
 
-# Import planner
-from ai.planner import plan_response, should_respond_with_plan
-
 # Import shared conversation utilities
 from ai.conversation_utils import (
     format_messages_to_role_string,
@@ -176,26 +173,6 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
         log_debug("No previous bot reply detected in recent history")
         return None
 
-    def _format_conversation_history_string(self, messages: List[Dict[str, str]]) -> str:
-        """Format messages into [role] string format for planner."""
-        return format_messages_to_role_string(messages, self.bot_name)
-
-    def _build_length_instruction(self, intent: str, response_length: str) -> str:
-        """Build length instruction based on intent and desired length."""
-        if intent == "answer_question":
-            length_instructions = {
-                "minimal": "Answer briefly in 1-2 sentences. If you don't know, say so honestly and encourage them to explain.",
-                "short": "Answer in 1-2 sentences. If uncertain, admit it naturally and invite more context.",
-                "medium": "Answer thoughtfully in 2-3 sentences. If you don't have enough info, be honest and ask them to share more."
-            }
-        else:
-            length_instructions = {
-                "minimal": "Reply in 1 very short sentence only.",
-                "short": "Reply in 1-2 brief sentences.",
-                "medium": "Reply in 2-3 sentences, you can be more thoughtful and detailed."
-            }
-        return length_instructions.get(response_length, length_instructions['short'])
-
     def _format_messages_for_api(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """
         Convert conversation history into Anthropic multi-turn message format.
@@ -332,48 +309,8 @@ IMPORTANT - Your Personal Knowledge Base (USE SPARINGLY):
             f"Responder: Converted {len(recent_messages)} messages into {len(conversation_messages)} API messages"
         )
 
-        # Format string for planner
-        conversation_history = self._format_conversation_history_string(recent_messages)
-
-        # Get relationship hint for planner
-        relationship_hint, _ = self._get_relationship_hint(latest_message.get('sender'))
-
-        log_debug(
-            f"Responder: Planner context sender={latest_message.get('sender')}, text={latest_parent_text[:80]}"
-        )
-
-        # Use planner to determine response strategy
-        log_debug(f"Responder: Calling planner (sender={relationship_hint})")
-        plan = plan_response(history=conversation_history)
-        plan_hint = (plan.get('hint') or "")
-        if len(plan_hint) > 90:
-            plan_hint = plan_hint[:90] + "..."
-        log_info(
-            "Responder: Planner result "
-            f"(respond={plan.get('should_respond')}, intent={plan.get('intent')}, "
-            f"tone={plan.get('tone')}, length={plan.get('response_length')}, hint={plan_hint})"
-        )
-
-        # Check if we should respond based on the plan
-        if not should_respond_with_plan(plan):
-            log_info("Responder: Planner skipped reply for this turn")
-            return None
-
-        log_debug("Responder: Planner approved response - generating reply")
-
-        # Build planning context using helper
-        intent = plan.get('intent', 'ack')
-        response_length = plan.get('response_length', 'short')
-        length_instruction = self._build_length_instruction(intent, response_length)
-        tone = plan.get('tone', 'neutral')
-        hint = plan.get('hint', '')
-
-        # Build instruction in natural language
-        instruction = f"Use {tone} tone, {length_instruction}, {hint}."
-
-        # Build instruction header
-        instruction_header = f"""{instruction}
-Do NOT prefix your reply with any labels such as [assistant], [mom], or [dad].
+        # Build simple instruction header
+        instruction_header = """Do NOT prefix your reply with any labels such as [assistant], [mom], or [dad].
 
 Now respond to the following message:"""
 
@@ -553,42 +490,10 @@ Now respond. Be brief and natural."""
         # Convert to multi-turn API format
         conversation_messages = self._format_messages_for_api(recent_messages)
 
-        # Format string for planner
-        conversation_history = self._format_conversation_history_string(recent_messages)
-
-        latest_message = ordered_messages[-1]
-        latest_parent_text = latest_message['text']
-
-        # Get relationship hint for planner
-        relationship_hint, _ = self._get_relationship_hint(latest_message.get('sender'))
-
-        # Get last bot reply using helper
-        last_bot_reply = self._get_last_bot_reply(recent_messages)
-
-        # Use planner to determine response strategy
-        plan = plan_response(history=conversation_history)
-        log_debug(f"Summary-aware planner result: {plan}")
-
-        # Check if we should respond based on the plan
-        if not should_respond_with_plan(plan):
-            log_debug("Summary-aware planner determined not to respond")
-            return None
-
-        # Build planning context using helper
-        intent = plan.get('intent', 'ack')
-        response_length = plan.get('response_length', 'short')
-        length_instruction = self._build_length_instruction(intent, response_length)
-        tone = plan.get('tone', 'neutral')
-        hint = plan.get('hint', '')
-
-        # Build instruction in natural language
-        instruction = f"Use {tone} tone, {length_instruction}, {hint}."
-
         # Build summary header
         summary_header = f"""Here is previous conversation summary:
 {summary}
 
-Instructions: {instruction}
 Do NOT prefix your reply with any labels such as [assistant], [mom], or [dad].
 
 Now respond to the following message:"""

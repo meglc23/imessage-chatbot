@@ -89,8 +89,7 @@ Requirements:
 3. If there are unanswered questions or pending items, specifically point them out
 4. Stay objective and concise, don't add subjective comments
 5. Output in Chinese
-
-Summary:"""
+"""
 
 # Prompt for generating startup topics
 STARTUP_TOPIC_PROMPT_TEMPLATE = """You are Meg, chatting with your parents in a family group chat.

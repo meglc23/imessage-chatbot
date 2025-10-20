@@ -106,7 +106,6 @@ class TestSummary(unittest.TestCase):
         last_user_msg = messages[-1]["content"] if messages else ""
         self.assertIn(summary, last_user_msg)
         self.assertIn("Here is previous conversation summary", last_user_msg)
-        self.assertIn("Instructions:", last_user_msg)
 
         print(f"Generated Response: {response}\n")
         self.assertEqual(response, "好啊！周末有空，几点视频？")
