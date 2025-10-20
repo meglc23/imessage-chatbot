@@ -119,8 +119,7 @@ You have access to a knowledge base below. The rule is: **Use this information a
 ---
 """
 
-STARTUP_TOPIC_PROMPT_TEMPLATE = """The conversation has gone quiet. Please generate a natural conversation starter to send to your parents.
+STARTUP_TOPIC_PROMPT_TEMPLATE = """对话已经安静了一段时间。请生成一个自然的开场白发给父母。{summary_context}
 
-For context, the last conversation was about: {summary_context}
-You can choose to gently follow up on this topic, or start a completely new one.
+你可以选择跟进之前的话题，或者开启一个全新的话题。
 输出自然的中文句子。"""
