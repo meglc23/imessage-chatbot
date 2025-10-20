@@ -185,19 +185,25 @@ class iMessageHandler:
         Returns:
             True if successful, False otherwise
         """
-        # Escape special characters for AppleScript
-        escaped_message = message.replace('"', '\\"').replace('\\', '\\\\')
+        if message is None:
+            return False
+
+        # Escape chat name for embedding in AppleScript
+        escaped_chat_name = self.chat_name.replace('"', '\\"')
 
         applescript = f'''
-        tell application "Messages"
-            set targetChat to first chat whose name is "{self.chat_name}"
-            send "{escaped_message}" to targetChat
-        end tell
+        on run argv
+            set messageText to item 1 of argv
+            tell application "Messages"
+                set targetChat to first chat whose name is "{escaped_chat_name}"
+                send messageText to targetChat
+            end tell
+        end run
         '''
 
         try:
             subprocess.run(
-                ['osascript', '-e', applescript],
+                ['osascript', '-e', applescript, str(message)],
                 check=True,
                 capture_output=True,
                 text=True
