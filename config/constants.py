@@ -28,7 +28,7 @@ DEFAULT_CHECK_INTERVAL = 20    # How often to check for new messages (seconds)
 # These are hard limits that should not be changed via .env
 
 # Maximum tokens for AI responses
-MAX_RESPONSE_TOKENS = 200
-MAX_SUMMARY_TOKENS = 300
-MAX_STARTUP_TOPIC_TOKENS = 100
-MAX_PLANNER_TOKENS = 200
+MAX_RESPONSE_TOKENS = 280
+MAX_SUMMARY_TOKENS = 360
+MAX_STARTUP_TOPIC_TOKENS = 140
+MAX_PLANNER_TOKENS = 240
